@@ -15,25 +15,35 @@ export interface BlockIndex {
   minPos: Float64Array;
 }
 
-export function buildBlockIndex(v: Float64Array): BlockIndex {
-  const n = v.length;
-  const nb = Math.ceil(n / BLOCK);
-  const min = new Float64Array(nb);
-  const max = new Float64Array(nb);
-  const argmin = new Int32Array(nb);
-  const argmax = new Int32Array(nb);
-  const minPos = new Float64Array(nb);
-  for (let b = 0; b < nb; b++) {
-    let lo = Infinity, hi = -Infinity, al = -1, ah = -1, mp = Infinity;
-    const end = Math.min(n, (b + 1) * BLOCK);
-    for (let i = b * BLOCK; i < end; i++) {
-      const x = v[i];
-      if (x !== x || x === Infinity || x === -Infinity) continue;
-      if (x < lo) { lo = x; al = i; }
-      if (x > hi) { hi = x; ah = i; }
-      if (x > 0 && x < mp) mp = x;
+const isFiniteNumber = (x: number) => x === x && x !== Infinity && x !== -Infinity;
+
+export function buildBlockIndex(values: Float64Array): BlockIndex {
+  const count = values.length;
+  const blockCount = Math.ceil(count / BLOCK);
+  const min = new Float64Array(blockCount);
+  const max = new Float64Array(blockCount);
+  const argmin = new Int32Array(blockCount);
+  const argmax = new Int32Array(blockCount);
+  const minPos = new Float64Array(blockCount);
+  for (let block = 0; block < blockCount; block++) {
+    let minValue = Infinity;
+    let maxValue = -Infinity;
+    let minIndex = -1;
+    let maxIndex = -1;
+    let minPositive = Infinity;
+    const blockEnd = Math.min(count, (block + 1) * BLOCK);
+    for (let i = block * BLOCK; i < blockEnd; i++) {
+      const value = values[i];
+      if (!isFiniteNumber(value)) continue;
+      if (value < minValue) { minValue = value; minIndex = i; }
+      if (value > maxValue) { maxValue = value; maxIndex = i; }
+      if (value > 0 && value < minPositive) minPositive = value;
     }
-    min[b] = lo; max[b] = hi; argmin[b] = al; argmax[b] = ah; minPos[b] = mp;
+    min[block] = minValue;
+    max[block] = maxValue;
+    argmin[block] = minIndex;
+    argmax[block] = maxIndex;
+    minPos[block] = minPositive;
   }
   return { min, max, argmin, argmax, minPos };
 }
@@ -45,63 +55,68 @@ export interface Extent {
   argmax: number;
 }
 
-/** Exact min/max (and their indices) over FINITE values in [i, j). */
-export function rangeExtent(v: Float64Array, ix: BlockIndex, i: number, j: number): Extent {
-  let lo = Infinity, hi = -Infinity, al = -1, ah = -1;
-  const scan = (a: number, b: number) => {
-    for (let t = a; t < b; t++) {
-      const x = v[t];
-      if (x !== x || x === Infinity || x === -Infinity) continue;
-      if (x < lo) { lo = x; al = t; }
-      if (x > hi) { hi = x; ah = t; }
+/** Exact min/max (and their indices) over FINITE values in [from, to). */
+export function rangeExtent(values: Float64Array, index: BlockIndex, from: number, to: number): Extent {
+  let minValue = Infinity;
+  let maxValue = -Infinity;
+  let minIndex = -1;
+  let maxIndex = -1;
+  const scan = (scanFrom: number, scanTo: number) => {
+    for (let i = scanFrom; i < scanTo; i++) {
+      const value = values[i];
+      if (!isFiniteNumber(value)) continue;
+      if (value < minValue) { minValue = value; minIndex = i; }
+      if (value > maxValue) { maxValue = value; maxIndex = i; }
     }
   };
-  const bStart = Math.ceil(i / BLOCK);
-  const bEnd = Math.floor(j / BLOCK);
-  if (bStart >= bEnd) {
-    scan(i, j);
+  // whole blocks inside [from, to) are read from the index; the partial edges are scanned point by point
+  const firstFullBlock = Math.ceil(from / BLOCK);
+  const endFullBlock = Math.floor(to / BLOCK);
+  if (firstFullBlock >= endFullBlock) {
+    scan(from, to);
   } else {
-    scan(i, bStart * BLOCK);
-    for (let b = bStart; b < bEnd; b++) {
-      if (ix.argmin[b] >= 0 && ix.min[b] < lo) { lo = ix.min[b]; al = ix.argmin[b]; }
-      if (ix.argmax[b] >= 0 && ix.max[b] > hi) { hi = ix.max[b]; ah = ix.argmax[b]; }
+    scan(from, firstFullBlock * BLOCK);
+    for (let block = firstFullBlock; block < endFullBlock; block++) {
+      if (index.argmin[block] >= 0 && index.min[block] < minValue) { minValue = index.min[block]; minIndex = index.argmin[block]; }
+      if (index.argmax[block] >= 0 && index.max[block] > maxValue) { maxValue = index.max[block]; maxIndex = index.argmax[block]; }
     }
-    scan(bEnd * BLOCK, j);
+    scan(endFullBlock * BLOCK, to);
   }
-  return { min: lo, max: hi, argmin: al, argmax: ah };
+  return { min: minValue, max: maxValue, argmin: minIndex, argmax: maxIndex };
 }
 
-/** Smallest finite value > 0 in [i, j), or Infinity. */
-export function rangeMinPositive(v: Float64Array, ix: BlockIndex, i: number, j: number): number {
-  let mp = Infinity;
-  const scan = (a: number, b: number) => {
-    for (let t = a; t < b; t++) {
-      const x = v[t];
-      if (x > 0 && x < mp && x !== Infinity) mp = x;
+/** Smallest finite value > 0 in [from, to), or Infinity. */
+export function rangeMinPositive(values: Float64Array, index: BlockIndex, from: number, to: number): number {
+  let minPositive = Infinity;
+  const scan = (scanFrom: number, scanTo: number) => {
+    for (let i = scanFrom; i < scanTo; i++) {
+      const value = values[i];
+      if (value > 0 && value < minPositive && value !== Infinity) minPositive = value;
     }
   };
-  const bStart = Math.ceil(i / BLOCK);
-  const bEnd = Math.floor(j / BLOCK);
-  if (bStart >= bEnd) scan(i, j);
+  const firstFullBlock = Math.ceil(from / BLOCK);
+  const endFullBlock = Math.floor(to / BLOCK);
+  if (firstFullBlock >= endFullBlock) scan(from, to);
   else {
-    scan(i, bStart * BLOCK);
-    for (let b = bStart; b < bEnd; b++) if (ix.minPos[b] < mp) mp = ix.minPos[b];
-    scan(bEnd * BLOCK, j);
+    scan(from, firstFullBlock * BLOCK);
+    for (let block = firstFullBlock; block < endFullBlock; block++) {
+      if (index.minPos[block] < minPositive) minPositive = index.minPos[block];
+    }
+    scan(endFullBlock * BLOCK, to);
   }
-  return mp;
+  return minPositive;
 }
 
 export type Validity = 'finite' | 'positive';
 
-const ok = (x: number, mode: Validity) =>
-  x === x && x !== Infinity && x !== -Infinity && (mode === 'finite' || x > 0);
+const isDrawable = (value: number, mode: Validity) => isFiniteNumber(value) && (mode === 'finite' || value > 0);
 
 /** Flat [start0, end0, start1, end1, ...] of maximal drawable runs. */
-export function computeSegments(step: Float64Array, v: Float64Array, gapThreshold: number, mode: Validity): Int32Array {
+export function computeSegments(step: Float64Array, values: Float64Array, gapThreshold: number, mode: Validity): Int32Array {
   const out: number[] = [];
   let start = -1;
-  for (let i = 0; i < v.length; i++) {
-    if (ok(v[i], mode)) {
+  for (let i = 0; i < values.length; i++) {
+    if (isDrawable(values[i], mode)) {
       if (start < 0) start = i;
       else if (step[i] - step[i - 1] > gapThreshold) {
         out.push(start, i);
@@ -112,43 +127,44 @@ export function computeSegments(step: Float64Array, v: Float64Array, gapThreshol
       start = -1;
     }
   }
-  if (start >= 0) out.push(start, v.length);
+  if (start >= 0) out.push(start, values.length);
   return Int32Array.from(out);
 }
 
 /** Indices of values that cannot be drawn on this scale. */
-export function computeInvalid(v: Float64Array, mode: Validity): Int32Array {
+export function computeInvalid(values: Float64Array, mode: Validity): Int32Array {
   const out: number[] = [];
-  for (let i = 0; i < v.length; i++) if (!ok(v[i], mode)) out.push(i);
+  for (let i = 0; i < values.length; i++) if (!isDrawable(values[i], mode)) out.push(i);
   return Int32Array.from(out);
 }
 
-/** First index in [lo,hi) with a[idx] >= x. */
-export function lowerBound(a: ArrayLike<number>, x: number, lo = 0, hi = a.length): number {
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid] < x) lo = mid + 1;
-    else hi = mid;
+/** First index in [left, right) with sorted[index] >= target. */
+export function lowerBound(sorted: ArrayLike<number>, target: number, left = 0, right = sorted.length): number {
+  while (left < right) {
+    const middle = (left + right) >>> 1;
+    if (sorted[middle] < target) left = middle + 1;
+    else right = middle;
   }
-  return lo;
+  return left;
 }
 
-/** First index in [lo,hi) with a[idx] > x. */
-export function upperBound(a: ArrayLike<number>, x: number, lo = 0, hi = a.length): number {
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (a[mid] <= x) lo = mid + 1;
-    else hi = mid;
+/** First index in [left, right) with sorted[index] > target. */
+export function upperBound(sorted: ArrayLike<number>, target: number, left = 0, right = sorted.length): number {
+  while (left < right) {
+    const middle = (left + right) >>> 1;
+    if (sorted[middle] <= target) left = middle + 1;
+    else right = middle;
   }
-  return lo;
+  return left;
 }
 
-/** Index of the point whose step is nearest to `x` (ties -> earlier). -1 if empty. */
-export function nearestIndex(step: Float64Array, x: number): number {
-  const n = step.length;
-  if (n === 0) return -1;
-  const i = lowerBound(step, x);
-  if (i === 0) return 0;
-  if (i === n) return n - 1;
-  return x - step[i - 1] <= step[i] - x ? i - 1 : i;
+/** Index of the point whose step is nearest to `target` (ties -> earlier). -1 if empty. */
+export function nearestIndex(step: Float64Array, target: number): number {
+  const count = step.length;
+  if (count === 0) return -1;
+  const after = lowerBound(step, target);
+  if (after === 0) return 0;
+  if (after === count) return count - 1;
+  const before = after - 1;
+  return target - step[before] <= step[after] - target ? before : after;
 }
