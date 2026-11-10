@@ -1,12 +1,16 @@
 import { type BlockIndex, lowerBound, rangeExtent, upperBound } from './index';
 
-/** Step value at the left edge of bucket c (c in 0..buckets). Shared with tests so both bin identically. */
-export function bucketEdge(x0: number, x1: number, buckets: number, c: number): number {
-  return c >= buckets ? x1 : x0 + ((x1 - x0) * c) / buckets;
+/** M4 keeps at most 4 points per pixel column: first, min, max, last. */
+export const POINTS_PER_COLUMN = 4;
+
+/** Step value at the left edge of pixel column `column` (0..columns). Shared with tests so both bin identically. */
+export function bucketEdge(viewStart: number, viewEnd: number, columns: number, column: number): number {
+  return column >= columns ? viewEnd : viewStart + ((viewEnd - viewStart) * column) / columns;
 }
 
 /**
- * M4 downsampling of one drawable segment [s, e) to `buckets` pixel columns over the step window [x0, x1].
+ * M4 downsampling of one drawable segment [segmentStart, segmentEnd) to `columns` pixel columns
+ * over the step window [viewStart, viewEnd].
  *
  * Per column we keep first, min, max and last point (by index, in order). The min/max points
  * guarantee that the vertical extent drawn in every pixel column equals the extent of the full-resolution
@@ -17,45 +21,56 @@ export function bucketEdge(x0: number, x1: number, buckets: number, c: number): 
  */
 export function m4Indices(
   step: Float64Array,
-  v: Float64Array,
-  ix: BlockIndex,
-  s: number,
-  e: number,
-  x0: number,
-  x1: number,
-  buckets: number,
+  values: Float64Array,
+  index: BlockIndex,
+  segmentStart: number,
+  segmentEnd: number,
+  viewStart: number,
+  viewEnd: number,
+  columns: number,
   naive = false,
 ): Int32Array {
-  const i = Math.max(s, lowerBound(step, x0, s, e) - 1);
-  const j = Math.min(e, upperBound(step, x1, s, e) + 1);
-  if (j <= i) return new Int32Array(0);
+  // visible part of the segment, plus one neighbour on each side
+  const first = Math.max(segmentStart, lowerBound(step, viewStart, segmentStart, segmentEnd) - 1);
+  const last = Math.min(segmentEnd, upperBound(step, viewEnd, segmentStart, segmentEnd) + 1);
+  if (last <= first) return new Int32Array(0);
+
   const out: number[] = [];
-  let cur = i;
-  if (step[cur] < x0) out.push(cur++);
-  let end = j;
-  let tail = -1;
-  if (end > cur && step[end - 1] > x1) {
-    tail = end - 1;
+  let columnStart = first;
+  if (step[columnStart] < viewStart) out.push(columnStart++); // point left of the view
+
+  let end = last;
+  let pointRightOfView = -1;
+  if (end > columnStart && step[end - 1] > viewEnd) {
+    pointRightOfView = end - 1;
     end--;
   }
-  if (naive || end - cur <= buckets * 4) {
-    for (let t = cur; t < end; t++) out.push(t);
+
+  if (naive || end - columnStart <= columns * POINTS_PER_COLUMN) {
+    // few points: nothing to save, draw them all
+    for (let i = columnStart; i < end; i++) out.push(i);
   } else {
-    for (let c = 0; c < buckets && cur < end; c++) {
-      const bEnd = c === buckets - 1 ? end : lowerBound(step, bucketEdge(x0, x1, buckets, c + 1), cur, end);
-      if (bEnd > cur) {
-        const ext = rangeExtent(v, ix, cur, bEnd);
-        const a = cur, d = bEnd - 1;
-        const lo = Math.min(ext.argmin, ext.argmax), hi = Math.max(ext.argmin, ext.argmax);
-        out.push(a);
-        if (lo > a) out.push(lo);
-        if (hi > lo && hi > a) out.push(hi);
-        if (d > hi && d > a) out.push(d);
+    for (let column = 0; column < columns && columnStart < end; column++) {
+      const columnEnd = column === columns - 1
+        ? end
+        : lowerBound(step, bucketEdge(viewStart, viewEnd, columns, column + 1), columnStart, end);
+      if (columnEnd > columnStart) {
+        const extent = rangeExtent(values, index, columnStart, columnEnd);
+        const firstInColumn = columnStart;
+        const lastInColumn = columnEnd - 1;
+        // min and max ordered by time, so the line goes left to right:
+        // if the max came before the min, the line must rise first and fall after
+        const earlierExtreme = Math.min(extent.argmin, extent.argmax);
+        const laterExtreme = Math.max(extent.argmin, extent.argmax);
+        out.push(firstInColumn);
+        if (earlierExtreme > firstInColumn) out.push(earlierExtreme);
+        if (laterExtreme > earlierExtreme && laterExtreme > firstInColumn) out.push(laterExtreme);
+        if (lastInColumn > laterExtreme && lastInColumn > firstInColumn) out.push(lastInColumn);
       }
-      cur = bEnd;
+      columnStart = columnEnd;
     }
   }
-  if (tail >= 0) out.push(tail);
+  if (pointRightOfView >= 0) out.push(pointRightOfView);
   return Int32Array.from(out);
 }
 
@@ -63,14 +78,15 @@ export function m4Indices(
  * Debiased EMA (TensorBoard-style), computed independently inside each segment: it restarts after
  * NaN/Inf and after logging gaps, so it never invents values across missing data. Outside segments -> NaN.
  */
-export function emaSmooth(v: Float64Array, segs: Int32Array, w: number): Float64Array {
-  const out = new Float64Array(v.length).fill(NaN);
-  for (let k = 0; k < segs.length; k += 2) {
-    let last = 0, deb = 0;
-    for (let i = segs[k]; i < segs[k + 1]; i++) {
-      last = last * w + (1 - w) * v[i];
-      deb = deb * w + (1 - w);
-      out[i] = last / deb;
+export function emaSmooth(values: Float64Array, segments: Int32Array, weight: number): Float64Array {
+  const out = new Float64Array(values.length).fill(NaN);
+  for (let s = 0; s < segments.length; s += 2) {
+    let average = 0;
+    let debias = 0; // corrects the bias towards 0 at the start of every segment
+    for (let i = segments[s]; i < segments[s + 1]; i++) {
+      average = average * weight + (1 - weight) * values[i];
+      debias = debias * weight + (1 - weight);
+      out[i] = average / debias;
     }
   }
   return out;

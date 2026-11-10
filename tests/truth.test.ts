@@ -45,7 +45,7 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
           x0 = Math.max(0, Math.min(x0, 999_999 - span));
           const f = frame(x0, x0 + span, width);
           // y domain contains the spike
-          expect(f.y.d1).toBeGreaterThanOrEqual(SPIKE.value);
+          expect(f.y.domainMax).toBeGreaterThanOrEqual(SPIKE.value);
           // the spike vertex is in the drawn polyline …
           const all = f.lines.flatMap((l) => Array.from(l.idx));
           expect(all).toContain(SPIKE.index);
@@ -73,7 +73,7 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
 
   it('when the spike is NOT in view, the y-domain does not keep a stale max', () => {
     const f = frame(600_000, 700_000);
-    expect(f.y.d1).toBeLessThan(SPIKE.value / 2);
+    expect(f.y.domainMax).toBeLessThan(SPIKE.value / 2);
   });
 
   it('M4 output covers exactly the same per-pixel vertical extent as drawing all points', () => {
@@ -107,8 +107,8 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
 
   it('y-domain is computed from finite values only (would stretch to 0 if NaN were 0)', () => {
     const { frame } = frameFor(raw(steps, loss));
-    expect(frame.y.d0).toBeGreaterThan(0.85);
-    expect(frame.y.d1).toBeLessThan(1.15);
+    expect(frame.y.domainMin).toBeGreaterThan(0.85);
+    expect(frame.y.domainMax).toBeLessThan(1.15);
   });
 
   it('every drawn vertex is a finite raw value; the line breaks at NaN/±Inf', () => {
@@ -147,7 +147,7 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
     expect(sm.map((l) => [l[0].step, l[l.length - 1].step])).toEqual([[0, 49], [51, 119], [122, 199]]);
     // debiased EMA's first value after a restart equals the raw value
     const prep = frameFor(raw(steps, loss), { smoothing: 0.9 }).prep;
-    const sv = [...prep.smoothCache.values()][0].v;
+    const sv = [...prep.smoothCache.values()][0].values;
     expect(sv[51]).toBeCloseTo(loss[51], 12);
     expect(Number.isNaN(sv[50])).toBe(true);
   });
@@ -182,7 +182,7 @@ describe('duplicates and unsorted steps do not distort the line', () => {
     expect(Array.from(b.series.step)).toEqual(Array.from(clean.step));
     expect(Array.from(b.series.values.loss)).toEqual(Array.from(clean.loss));
     expect(b.frame.lines.map((l) => Array.from(l.px))).toEqual(a.frame.lines.map((l) => Array.from(l.px)));
-    expect(b.frame.y.d1).toBeLessThan(20); // the stale 99s did not leak into the domain
+    expect(b.frame.y.domainMax).toBeLessThan(20); // the stale 99s did not leak into the domain
   });
 
   it('later write wins for duplicated steps (resume from checkpoint)', () => {
@@ -228,8 +228,8 @@ describe('numbers and axis labels match the data', () => {
         const labels = frame.yTicks.map((t) => t.label);
         expect(new Set(labels).size).toBe(labels.length);
         for (const t of frame.yTicks) {
-          expect(t.value).toBeGreaterThanOrEqual(frame.y.d0);
-          expect(t.value).toBeLessThanOrEqual(frame.y.d1);
+          expect(t.value).toBeGreaterThanOrEqual(frame.y.domainMin);
+          expect(t.value).toBeLessThanOrEqual(frame.y.domainMax);
           expect(Math.abs(parseEn(t.label) - t.value)).toBeLessThanOrEqual(Math.abs(t.value) * 1e-9 + 1e-15);
           expect(frame.y.invert(t.px)).toBeCloseTo(t.value, 9);
         }
@@ -300,7 +300,7 @@ describe('log scale with zeros / negatives', () => {
     const r = RUN_SPECS.find((s) => s.id === 'r01')!.build();
     expect(r.lr[0]).toBe(0);
     const { frame, series } = frameFor(r, { metric: 'lr', scale: 'log' });
-    expect(frame.y.d0).toBeGreaterThan(0);
+    expect(frame.y.domainMin).toBeGreaterThan(0);
     for (const l of frame.lines) for (const p of l.px) expect(Number.isFinite(p)).toBe(true);
     const np = frame.markers.filter((m) => m.kind === 'nonPositive');
     expect(np.map((m) => m.step)).toEqual(expect.arrayContaining([0, series.step[series.n - 1]]));

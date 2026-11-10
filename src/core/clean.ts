@@ -31,101 +31,116 @@ export interface CleanSeries {
   report: CleanReport;
 }
 
+/** A step jump bigger than GAP_FACTOR × the median step is a logging gap: the line breaks there. */
 export const GAP_FACTOR = 3;
+/** With fewer points the median step means nothing, so no gaps are detected. */
+const MIN_POINTS_FOR_GAPS = 3;
+/** The median step is computed on at most this many differences (enough for a stable median, fast on 1M points). */
+const MEDIAN_SAMPLE_SIZE = 10_001;
 
 export function cleanRun(raw: RawRun): CleanSeries {
-  const N = raw.step.length;
-  const rs = raw.step;
-  let idx = new Uint32Array(N);
-  let m = 0;
+  const inputCount = raw.step.length;
+  const rawStep = raw.step;
+
+  // 1. indices of points with a usable step; remember whether steps were already in order
+  let order = new Uint32Array(inputCount);
+  let validCount = 0;
   let invalidSteps = 0;
   let sorted = true;
-  let prev = -Infinity;
-  for (let i = 0; i < N; i++) {
-    const s = rs[i];
-    if (!Number.isFinite(s)) {
+  let previousStep = -Infinity;
+  for (let i = 0; i < inputCount; i++) {
+    const stepValue = rawStep[i];
+    if (!Number.isFinite(stepValue)) {
       invalidSteps++;
       continue;
     }
-    if (s < prev) sorted = false;
-    prev = s;
-    idx[m++] = i;
+    if (stepValue < previousStep) sorted = false;
+    previousStep = stepValue;
+    order[validCount++] = i;
   }
-  idx = idx.subarray(0, m);
+  order = order.subarray(0, validCount);
   if (!sorted) {
     // stable: equal steps keep their original (log) order, so "last in group" == "last written"
-    idx = idx.slice().sort((a, b) => rs[a] - rs[b] || a - b);
+    order = order.slice().sort((a, b) => rawStep[a] - rawStep[b] || a - b);
   }
 
-  const keep = new Uint32Array(m);
-  let k = 0;
-  let dups = 0;
-  for (let t = 0; t < m; t++) {
-    if (t + 1 < m && rs[idx[t + 1]] === rs[idx[t]]) {
-      dups++;
+  // 2. drop duplicate steps, keeping the last written one
+  const kept = new Uint32Array(validCount);
+  let keptCount = 0;
+  let duplicates = 0;
+  for (let position = 0; position < validCount; position++) {
+    const nextHasSameStep = position + 1 < validCount && rawStep[order[position + 1]] === rawStep[order[position]];
+    if (nextHasSameStep) {
+      duplicates++;
       continue;
     }
-    keep[k++] = idx[t];
+    kept[keptCount++] = order[position];
   }
 
+  // 3. build the clean arrays
   let step: Float64Array;
   const values = {} as Record<Metric, Float64Array>;
-  if (sorted && dups === 0 && invalidSteps === 0) {
+  if (sorted && duplicates === 0 && invalidSteps === 0) {
     // Fast path (the 1M run): no copy, keeps tab memory at ~1x the raw data.
-    step = rs;
-    for (const mt of METRICS) values[mt] = raw[mt];
+    step = rawStep;
+    for (const metric of METRICS) values[metric] = raw[metric];
   } else {
-    step = new Float64Array(k);
-    for (const mt of METRICS) values[mt] = new Float64Array(k);
-    for (let t = 0; t < k; t++) {
-      const i = keep[t];
-      step[t] = rs[i];
-      for (const mt of METRICS) values[mt][t] = raw[mt][i];
+    step = new Float64Array(keptCount);
+    for (const metric of METRICS) values[metric] = new Float64Array(keptCount);
+    for (let position = 0; position < keptCount; position++) {
+      const rawIndex = kept[position];
+      step[position] = rawStep[rawIndex];
+      for (const metric of METRICS) values[metric][position] = raw[metric][rawIndex];
     }
   }
 
+  // 4. count values that can't be drawn
   const nonFinite = {} as Record<Metric, NonFiniteCount>;
   const nonPositive = {} as Record<Metric, number>;
-  for (const mt of METRICS) {
-    const v = values[mt];
-    const c: NonFiniteCount = { nan: 0, posInf: 0, negInf: 0 };
-    let np = 0;
-    for (let t = 0; t < k; t++) {
-      const x = v[t];
-      if (x !== x) c.nan++;
-      else if (x === Infinity) c.posInf++;
-      else if (x === -Infinity) c.negInf++;
-      else if (x <= 0) np++;
+  for (const metric of METRICS) {
+    const metricValues = values[metric];
+    const counts: NonFiniteCount = { nan: 0, posInf: 0, negInf: 0 };
+    let nonPositiveCount = 0;
+    for (let i = 0; i < keptCount; i++) {
+      const value = metricValues[i];
+      if (value !== value) counts.nan++;
+      else if (value === Infinity) counts.posInf++;
+      else if (value === -Infinity) counts.negInf++;
+      else if (value <= 0) nonPositiveCount++;
     }
-    nonFinite[mt] = c;
-    nonPositive[mt] = np;
+    nonFinite[metric] = counts;
+    nonPositive[metric] = nonPositiveCount;
   }
 
+  // 5. logging gaps
   const medianStride = median(step);
-  const gapThreshold = k < 3 ? Infinity : medianStride * GAP_FACTOR;
+  const gapThreshold = keptCount < MIN_POINTS_FOR_GAPS ? Infinity : medianStride * GAP_FACTOR;
   const gaps: { from: number; to: number }[] = [];
-  for (let t = 0; t + 1 < k; t++) {
-    if (step[t + 1] - step[t] > gapThreshold) gaps.push({ from: step[t], to: step[t + 1] });
+  for (let i = 0; i + 1 < keptCount; i++) {
+    if (step[i + 1] - step[i] > gapThreshold) gaps.push({ from: step[i], to: step[i + 1] });
   }
 
   return {
-    n: k,
+    n: keptCount,
     step,
     values,
-    report: { input: N, invalidSteps, duplicatesDropped: dups, wasUnsorted: !sorted, medianStride, gapThreshold, gaps, nonFinite, nonPositive },
+    report: {
+      input: inputCount, invalidSteps, duplicatesDropped: duplicates, wasUnsorted: !sorted,
+      medianStride, gapThreshold, gaps, nonFinite, nonPositive,
+    },
   };
 }
 
 /** Median of consecutive differences, sampled (<=10k diffs) so it is O(1)-ish on 1M points. */
 function median(step: Float64Array): number {
-  const d = step.length - 1;
-  if (d < 1) return 1;
-  const S = Math.min(d, 10_001);
-  const sample = new Float64Array(S);
-  for (let j = 0; j < S; j++) {
-    const t = Math.floor((j * d) / S);
-    sample[j] = step[t + 1] - step[t];
+  const diffCount = step.length - 1;
+  if (diffCount < 1) return 1;
+  const sampleSize = Math.min(diffCount, MEDIAN_SAMPLE_SIZE);
+  const sample = new Float64Array(sampleSize);
+  for (let s = 0; s < sampleSize; s++) {
+    const i = Math.floor((s * diffCount) / sampleSize);
+    sample[s] = step[i + 1] - step[i];
   }
   sample.sort();
-  return sample[Math.floor(S / 2)];
+  return sample[Math.floor(sampleSize / 2)];
 }
