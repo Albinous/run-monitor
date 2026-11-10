@@ -13,101 +13,133 @@ export type Ctx = Pick<
   textAlign: CanvasTextAlign; textBaseline: CanvasTextBaseline;
 };
 
+/** Sizes in CSS pixels, opacity from 0 to 1. */
+const STYLE = {
+  font: '11px system-ui, sans-serif',
+  gridLineWidth: 1,
+  /** Gap between a tick label and the plot border. */
+  labelGap: 6,
+  rawLineWidth: 1.25,
+  smoothLineWidth: 2,
+  /** With smoothing on, the raw line is dimmed to this opacity — still visible, never hidden. */
+  dimmedRawOpacity: 0.4,
+  nanBandOpacity: 0.55,
+  nanBandDash: [3, 3],
+  /** Size of the dot drawn for a single point between two NaNs. */
+  lonePointSize: 3,
+  /** ±∞ / ≤0 triangles: half of the base width and the height. */
+  markerHalfWidth: 5,
+  markerHeight: 8,
+  /** Triangles sit 1 px inside the plot so the border doesn't cut them. */
+  markerInset: 1,
+};
+
+/**
+ * A 1 px line drawn at a whole pixel coordinate is blurred over 2 pixels.
+ * Shifting it by half a pixel makes it sharp.
+ */
+const crisp = (pixel: number) => Math.round(pixel) + 0.5;
+
 function strokeLines(ctx: Ctx, lines: Line[]) {
-  for (const l of lines) {
-    const p = l.px;
-    if (l.idx.length === 1) {
+  for (const line of lines) {
+    const points = line.px; // [x0, y0, x1, y1, ...]
+    if (line.idx.length === 1) {
       // isolated point between two NaNs: a 1-point "line" would be invisible, draw a dot instead
-      ctx.fillRect(p[0] - 1.5, p[1] - 1.5, 3, 3);
+      const half = STYLE.lonePointSize / 2;
+      ctx.fillRect(points[0] - half, points[1] - half, STYLE.lonePointSize, STYLE.lonePointSize);
       continue;
     }
     ctx.beginPath();
-    ctx.moveTo(p[0], p[1]);
-    for (let t = 2; t < p.length; t += 2) ctx.lineTo(p[t], p[t + 1]);
+    ctx.moveTo(points[0], points[1]);
+    for (let p = 2; p < points.length; p += 2) ctx.lineTo(points[p], points[p + 1]);
     ctx.stroke();
   }
 }
 
-export function drawFrame(ctx: Ctx, f: Frame, width: number, height: number, pal: Palette, smoothing: boolean) {
-  const { plot } = f;
+export function drawFrame(ctx: Ctx, frame: Frame, width: number, height: number, palette: Palette, smoothing: boolean) {
+  const { plot } = frame;
+  const plotRight = plot.left + plot.width;
+  const plotBottom = plot.top + plot.height;
   ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = pal.bg;
+  ctx.fillStyle = palette.bg;
   ctx.fillRect(0, 0, width, height);
 
   // grid + tick labels
-  ctx.font = '11px system-ui, sans-serif';
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = pal.grid;
-  ctx.fillStyle = pal.text;
+  ctx.font = STYLE.font;
+  ctx.lineWidth = STYLE.gridLineWidth;
+  ctx.strokeStyle = palette.grid;
+  ctx.fillStyle = palette.text;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  for (const t of f.yTicks) {
-    const yy = Math.round(t.px) + 0.5;
+  for (const tick of frame.yTicks) {
+    const y = crisp(tick.px);
     ctx.beginPath();
-    ctx.moveTo(plot.left, yy);
-    ctx.lineTo(plot.left + plot.width, yy);
+    ctx.moveTo(plot.left, y);
+    ctx.lineTo(plotRight, y);
     ctx.stroke();
-    ctx.fillText(t.label, plot.left - 6, yy);
+    ctx.fillText(tick.label, plot.left - STYLE.labelGap, y);
   }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  for (const t of f.xTicks) {
-    const xx = Math.round(t.px) + 0.5;
+  for (const tick of frame.xTicks) {
+    const x = crisp(tick.px);
     ctx.beginPath();
-    ctx.moveTo(xx, plot.top);
-    ctx.lineTo(xx, plot.top + plot.height);
+    ctx.moveTo(x, plot.top);
+    ctx.lineTo(x, plotBottom);
     ctx.stroke();
-    ctx.fillText(t.label, xx, plot.top + plot.height + 6);
+    ctx.fillText(tick.label, x, plotBottom + STYLE.labelGap);
   }
-  ctx.strokeStyle = pal.axis;
+  ctx.strokeStyle = palette.axis;
   ctx.beginPath();
   ctx.rect(plot.left + 0.5, plot.top + 0.5, plot.width, plot.height);
   ctx.stroke();
 
+  // nothing below is allowed to paint outside the plot
   ctx.save();
   ctx.beginPath();
   ctx.rect(plot.left, plot.top, plot.width, plot.height);
   ctx.clip();
 
   // NaN: full-height dashed band — impossible to mistake for a value
-  for (const m of f.markers) {
-    if (m.kind !== 'nan') continue;
-    ctx.strokeStyle = pal.nan;
-    ctx.globalAlpha = 0.55;
-    ctx.setLineDash([3, 3]);
+  for (const marker of frame.markers) {
+    if (marker.kind !== 'nan') continue;
+    const x = crisp(marker.px);
+    ctx.strokeStyle = palette.nan;
+    ctx.globalAlpha = STYLE.nanBandOpacity;
+    ctx.setLineDash(STYLE.nanBandDash);
     ctx.beginPath();
-    ctx.moveTo(Math.round(m.px) + 0.5, plot.top);
-    ctx.lineTo(Math.round(m.px) + 0.5, plot.top + plot.height);
+    ctx.moveTo(x, plot.top);
+    ctx.lineTo(x, plotBottom);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.globalAlpha = 1;
   }
 
   // raw line: always drawn. With smoothing on it is dimmed, never hidden.
-  ctx.strokeStyle = pal.line;
-  ctx.fillStyle = pal.line;
-  ctx.lineWidth = 1.25;
-  ctx.globalAlpha = smoothing ? 0.4 : 1;
-  strokeLines(ctx, f.lines);
+  ctx.strokeStyle = palette.line;
+  ctx.fillStyle = palette.line;
+  ctx.lineWidth = STYLE.rawLineWidth;
+  ctx.globalAlpha = smoothing ? STYLE.dimmedRawOpacity : 1;
+  strokeLines(ctx, frame.lines);
   ctx.globalAlpha = 1;
   if (smoothing) {
-    ctx.strokeStyle = pal.smooth;
-    ctx.fillStyle = pal.smooth;
-    ctx.lineWidth = 2;
-    strokeLines(ctx, f.smoothLines);
+    ctx.strokeStyle = palette.smooth;
+    ctx.fillStyle = palette.smooth;
+    ctx.lineWidth = STYLE.smoothLineWidth;
+    strokeLines(ctx, frame.smoothLines);
   }
 
   // ±∞ and ≤0-on-log: triangles pinned to the edge they "went off"
-  for (const m of f.markers) {
-    if (m.kind === 'nan') continue;
-    const top = m.kind === 'posInf';
-    const yy = top ? plot.top + 1 : plot.top + plot.height - 1;
-    const dir = top ? 1 : -1;
-    ctx.fillStyle = m.kind === 'nonPositive' ? pal.text : pal.inf;
+  for (const marker of frame.markers) {
+    if (marker.kind === 'nan') continue;
+    const atTop = marker.kind === 'posInf';
+    const baseY = atTop ? plot.top + STYLE.markerInset : plotBottom - STYLE.markerInset;
+    const tipDirection = atTop ? 1 : -1; // the tip points into the plot
+    ctx.fillStyle = marker.kind === 'nonPositive' ? palette.text : palette.inf;
     ctx.beginPath();
-    ctx.moveTo(m.px - 5, yy);
-    ctx.lineTo(m.px + 5, yy);
-    ctx.lineTo(m.px, yy + 8 * dir);
+    ctx.moveTo(marker.px - STYLE.markerHalfWidth, baseY);
+    ctx.lineTo(marker.px + STYLE.markerHalfWidth, baseY);
+    ctx.lineTo(marker.px, baseY + STYLE.markerHeight * tipDirection);
     ctx.closePath();
     ctx.fill();
   }

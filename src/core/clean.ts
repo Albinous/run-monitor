@@ -31,7 +31,12 @@ export interface CleanSeries {
   report: CleanReport;
 }
 
+/** A step jump bigger than GAP_FACTOR × the median step is a logging gap: the line breaks there. */
 export const GAP_FACTOR = 3;
+/** With fewer points the median step means nothing, so no gaps are detected. */
+const MIN_POINTS_FOR_GAPS = 3;
+/** The median step is computed on at most this many differences (enough for a stable median, fast on 1M points). */
+const MEDIAN_SAMPLE_SIZE = 10_001;
 
 export function cleanRun(raw: RawRun): CleanSeries {
   const inputCount = raw.step.length;
@@ -109,7 +114,7 @@ export function cleanRun(raw: RawRun): CleanSeries {
 
   // 5. logging gaps
   const medianStride = median(step);
-  const gapThreshold = keptCount < 3 ? Infinity : medianStride * GAP_FACTOR;
+  const gapThreshold = keptCount < MIN_POINTS_FOR_GAPS ? Infinity : medianStride * GAP_FACTOR;
   const gaps: { from: number; to: number }[] = [];
   for (let i = 0; i + 1 < keptCount; i++) {
     if (step[i + 1] - step[i] > gapThreshold) gaps.push({ from: step[i], to: step[i + 1] });
@@ -130,7 +135,7 @@ export function cleanRun(raw: RawRun): CleanSeries {
 function median(step: Float64Array): number {
   const diffCount = step.length - 1;
   if (diffCount < 1) return 1;
-  const sampleSize = Math.min(diffCount, 10_001);
+  const sampleSize = Math.min(diffCount, MEDIAN_SAMPLE_SIZE);
   const sample = new Float64Array(sampleSize);
   for (let s = 0; s < sampleSize; s++) {
     const i = Math.floor((s * diffCount) / sampleSize);

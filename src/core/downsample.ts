@@ -1,5 +1,8 @@
 import { type BlockIndex, lowerBound, rangeExtent, upperBound } from './index';
 
+/** M4 keeps at most 4 points per pixel column: first, min, max, last. */
+export const POINTS_PER_COLUMN = 4;
+
 /** Step value at the left edge of pixel column `column` (0..columns). Shared with tests so both bin identically. */
 export function bucketEdge(viewStart: number, viewEnd: number, columns: number, column: number): number {
   return column >= columns ? viewEnd : viewStart + ((viewEnd - viewStart) * column) / columns;
@@ -43,7 +46,7 @@ export function m4Indices(
     end--;
   }
 
-  if (naive || end - columnStart <= columns * 4) {
+  if (naive || end - columnStart <= columns * POINTS_PER_COLUMN) {
     // few points: nothing to save, draw them all
     for (let i = columnStart; i < end; i++) out.push(i);
   } else {

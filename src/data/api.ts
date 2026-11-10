@@ -7,65 +7,84 @@ import { summarize } from '../core/summary';
 import type { RawRun, RunMeta } from '../core/types';
 import { baseRun, RUN_SPECS, type RunSpec } from './generate';
 
+/** Every response waits a random time between MIN and MIN + SPREAD milliseconds, like a real network. */
+const MIN_LATENCY_MS = 150;
+const LATENCY_SPREAD_MS = 600;
+/** Share of live-run requests that fail (0.3 = 30%), to show the stale-data banner. */
+const LIVE_RUN_FAILURE_RATE = 0.3;
+/** The live run starts with this many points and gets one more every LIVE_RUN_MS_PER_POINT (= 20 points/s). */
+const LIVE_RUN_START_POINTS = 3000;
+const LIVE_RUN_MS_PER_POINT = 50;
+/** Generator settings of the live run: logs every 10 steps, slow loss decay. */
+const LIVE_RUN_STRIDE = 10;
+const LIVE_RUN_SEED = 12;
+const LIVE_RUN_DECAY = 2;
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
   }
 }
 
-export const isAbort = (e: unknown) => e instanceof DOMException && e.name === 'AbortError';
+export const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
 const store = new Map<string, RawRun>();
 const bootTime = Date.now();
 
 function rawFor(spec: RunSpec): RawRun {
   if (spec.live) {
-    // live run grows by 20 points/sec after page load
-    const n = 3000 + Math.floor((Date.now() - bootTime) / 50);
-    return baseRun({ n, stride: 10, seed: 12, tau: 2 });
+    const points = LIVE_RUN_START_POINTS + Math.floor((Date.now() - bootTime) / LIVE_RUN_MS_PER_POINT);
+    return baseRun({ n: points, stride: LIVE_RUN_STRIDE, seed: LIVE_RUN_SEED, tau: LIVE_RUN_DECAY });
   }
-  let r = store.get(spec.id);
-  if (!r) {
-    r = spec.build();
-    store.set(spec.id, r);
+  let run = store.get(spec.id);
+  if (!run) {
+    run = spec.build();
+    store.set(spec.id, run);
   }
-  return r;
+  return run;
 }
 
 function metaFor(spec: RunSpec): RunMeta {
-  const s = summarize(cleanRun(rawFor(spec)));
+  const summary = summarize(cleanRun(rawFor(spec)));
   return {
-    id: spec.id, name: spec.name, status: spec.status, startedAt: spec.startedAt, defects: spec.defects,
-    points: s.points, lastStep: s.lastStep, // value at the LAST step, even if NaN: showing the last finite value would make a diverged run look healthy.
-    // (NB: a real JSON API would turn NaN into null — it would need an explicit encoding, e.g. "NaN" strings.)
-    lastLoss: s.lossAtLastStep, minLoss: s.minLoss?.value ?? null,
+    id: spec.id,
+    name: spec.name,
+    status: spec.status,
+    startedAt: spec.startedAt,
+    defects: spec.defects,
+    points: summary.points,
+    lastStep: summary.lastStep,
+    // Value at the LAST step, even if NaN: showing the last finite value would make a diverged run look healthy.
+    // (A real JSON API would turn NaN into null — it would need an explicit encoding, e.g. "NaN" strings.)
+    lastLoss: summary.lossAtLastStep,
+    minLoss: summary.minLoss?.value ?? null,
   };
 }
 
-function delay(ms: number, signal?: AbortSignal): Promise<void> {
+function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('aborted', 'AbortError'));
-    const t = setTimeout(resolve, ms);
+    const timer = setTimeout(resolve, milliseconds);
     signal?.addEventListener('abort', () => {
-      clearTimeout(t);
+      clearTimeout(timer);
       reject(new DOMException('aborted', 'AbortError'));
     }, { once: true });
   });
 }
 
-const jitter = () => 150 + Math.random() * 600;
+const randomLatency = () => MIN_LATENCY_MS + Math.random() * LATENCY_SPREAD_MS;
 
 export async function listRuns(signal?: AbortSignal): Promise<{ runs: RunMeta[]; fetchedAt: number }> {
-  await delay(jitter(), signal);
+  await delay(randomLatency(), signal);
   return { runs: RUN_SPECS.map(metaFor), fetchedAt: Date.now() };
 }
 
 export async function getRun(id: string, signal?: AbortSignal): Promise<{ meta: RunMeta; data: RawRun; fetchedAt: number }> {
   const spec = RUN_SPECS.find((s) => s.id === id);
-  await delay(spec?.latencyMs ?? jitter(), signal);
+  await delay(spec?.latencyMs ?? randomLatency(), signal);
   if (!spec) throw new ApiError(404, `Run "${id}" not found`);
   if (spec.alwaysFails) throw new ApiError(500, 'Internal Server Error: metrics shard unavailable');
-  if (spec.live && Math.random() < 0.3) throw new ApiError(503, 'Upstream timeout while polling live run');
+  if (spec.live && Math.random() < LIVE_RUN_FAILURE_RATE) throw new ApiError(503, 'Upstream timeout while polling live run');
   return { meta: metaFor(spec), data: rawFor(spec), fetchedAt: Date.now() };
 }
 

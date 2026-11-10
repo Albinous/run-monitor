@@ -7,6 +7,31 @@ import {
 } from './index';
 import type { Metric, ScaleKind } from './types';
 
+/** Empty space above the highest and below the lowest point: 5% of the visible range, so extremes don't touch the border. */
+const Y_PADDING_FRACTION = 0.05;
+/** If all visible values are equal, the range is ±10% of the value (or ±1 around 0). */
+const FLAT_LINE_PADDING_FRACTION = 0.1;
+const FLAT_LINE_PADDING_AT_ZERO = 1;
+/** A log axis always shows at least 0.2 decades, so a nearly flat line isn't blown up to full height. */
+const MIN_LOG_DECADES = 0.2;
+/** Axis shown when nothing can be drawn (no points or only NaN in view). */
+const EMPTY_LINEAR_DOMAIN = { min: 0, max: 1 };
+const EMPTY_LOG_DOMAIN = { min: 1, max: 10 };
+/** About one tick label per this many pixels. */
+const PX_PER_X_TICK = 110;
+const PX_PER_Y_TICK = 40;
+const MIN_TICKS = 2;
+/** Tick values are rounded to 12 significant digits to remove float noise like 0.30000000000000004. */
+const TICK_PRECISION = 12;
+/** Tolerance for float error when checking whether a tick lies exactly on the range edge. */
+const FLOAT_TOLERANCE = 1e-9;
+/** "Round" tick spacings are 1, 2 or 5 × 10ⁿ. */
+const NICE_MULTIPLES = [1, 2, 5];
+/** The plot never gets smaller than this, even in a very narrow container. */
+const MIN_PLOT_SIZE_PX = 10;
+
+const roundTick = (value: number) => Number(value.toPrecision(TICK_PRECISION));
+
 /** Everything derived once per (series, metric). Built lazily; the 1M run pays ~O(n) once. */
 export interface MetricPrep {
   values: Float64Array;
@@ -76,23 +101,23 @@ export function linearTicks(min: number, max: number, count: number, minStep = 0
   if (!(max > min)) return { values: [min], step: 1 };
   const tickStep = Math.max(minStep, niceStep(max - min, count));
   const values: number[] = [];
-  for (let k = Math.ceil(min / tickStep - 1e-9); k <= Math.floor(max / tickStep + 1e-9); k++) {
-    values.push(Number((k * tickStep).toPrecision(12))); // toPrecision removes float noise like 0.30000000000000004
-  }
+  const first = Math.ceil(min / tickStep - FLOAT_TOLERANCE);
+  const last = Math.floor(max / tickStep + FLOAT_TOLERANCE);
+  for (let k = first; k <= last; k++) values.push(roundTick(k * tickStep));
   return { values, step: tickStep };
 }
 
 export function logTicks(min: number, max: number): number[] {
   const powers: number[] = [];
-  for (let exponent = Math.ceil(Math.log10(min) - 1e-9); exponent <= Math.floor(Math.log10(max) + 1e-9); exponent++) {
-    powers.push(Number((10 ** exponent).toPrecision(12)));
-  }
-  if (powers.length >= 2) return powers;
+  const firstExponent = Math.ceil(Math.log10(min) - FLOAT_TOLERANCE);
+  const lastExponent = Math.floor(Math.log10(max) + FLOAT_TOLERANCE);
+  for (let exponent = firstExponent; exponent <= lastExponent; exponent++) powers.push(roundTick(10 ** exponent));
+  if (powers.length >= MIN_TICKS) return powers;
   // less than two powers of 10 in range: also use 2× and 5×
   const withMultiples: number[] = [];
   for (let exponent = Math.floor(Math.log10(min)); exponent <= Math.ceil(Math.log10(max)); exponent++) {
-    for (const multiple of [1, 2, 5]) {
-      const tick = Number((multiple * 10 ** exponent).toPrecision(12));
+    for (const multiple of NICE_MULTIPLES) {
+      const tick = roundTick(multiple * 10 ** exponent);
       if (tick >= min && tick <= max) withMultiples.push(tick);
     }
   }
@@ -145,8 +170,8 @@ export function computeFrame(input: FrameInput): Frame {
   const plot = {
     left: MARGIN.left,
     top: MARGIN.top,
-    width: Math.max(10, Math.floor(input.width - MARGIN.left - MARGIN.right)),
-    height: Math.max(10, Math.floor(input.height - MARGIN.top - MARGIN.bottom)),
+    width: Math.max(MIN_PLOT_SIZE_PX, Math.floor(input.width - MARGIN.left - MARGIN.right)),
+    height: Math.max(MIN_PLOT_SIZE_PX, Math.floor(input.height - MARGIN.top - MARGIN.bottom)),
   };
   const viewStart = view.x0;
   const viewEnd = view.x1;
@@ -171,32 +196,38 @@ export function computeFrame(input: FrameInput): Frame {
   }
   if (empty) {
     notes.push(endVisible > firstVisible ? 'No drawable values in view' : 'No points in view');
-    minValue = scale === 'log' ? 1 : 0;
-    maxValue = scale === 'log' ? 10 : 1;
+    const emptyDomain = scale === 'log' ? EMPTY_LOG_DOMAIN : EMPTY_LINEAR_DOMAIN;
+    minValue = emptyDomain.min;
+    maxValue = emptyDomain.max;
   }
-  // 5% padding so the extreme points don't touch the plot border
+  // padding so the extreme points don't touch the plot border
   let yMin: number;
   let yMax: number;
   if (scale === 'log') {
-    const decades = Math.max(Math.log10(maxValue) - Math.log10(minValue), 0.2);
-    yMin = minValue / 10 ** (decades * 0.05);
-    yMax = maxValue * 10 ** (decades * 0.05);
+    const decades = Math.max(Math.log10(maxValue) - Math.log10(minValue), MIN_LOG_DECADES);
+    const paddingFactor = 10 ** (decades * Y_PADDING_FRACTION);
+    yMin = minValue / paddingFactor;
+    yMax = maxValue * paddingFactor;
   } else {
     const span = maxValue - minValue;
-    const padding = span > 0 ? span * 0.05 : Math.abs(maxValue) * 0.1 || 1;
+    const padding = span > 0
+      ? span * Y_PADDING_FRACTION
+      : Math.abs(maxValue) * FLAT_LINE_PADDING_FRACTION || FLAT_LINE_PADDING_AT_ZERO;
     yMin = minValue - padding;
     yMax = maxValue + padding;
   }
   const y = makeScale(scale, yMin, yMax, plot.top + plot.height, plot.top);
 
-  // --- ticks
-  const xTickSet = linearTicks(viewStart, viewEnd, Math.max(2, Math.floor(plot.width / 110)), 1);
+  // --- ticks (x axis: steps are integers, so the tick spacing is at least 1)
+  const xTickCount = Math.max(MIN_TICKS, Math.floor(plot.width / PX_PER_X_TICK));
+  const xTickSet = linearTicks(viewStart, viewEnd, xTickCount, 1);
   const xTicks = xTickSet.values.map((value) => ({ value, label: formatTick(value, xTickSet.step, locale), px: x.map(value) }));
   let yTicks: Tick[];
   if (scale === 'log') {
     yTicks = logTicks(yMin, yMax).map((value) => ({ value, label: formatTick(value, null, locale), px: y.map(value) }));
   } else {
-    const yTickSet = linearTicks(yMin, yMax, Math.max(2, Math.floor(plot.height / 40)));
+    const yTickCount = Math.max(MIN_TICKS, Math.floor(plot.height / PX_PER_Y_TICK));
+    const yTickSet = linearTicks(yMin, yMax, yTickCount);
     yTicks = yTickSet.values.map((value) => ({ value, label: formatTick(value, yTickSet.step, locale), px: y.map(value) }));
   }
 
