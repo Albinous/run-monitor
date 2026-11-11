@@ -1,0 +1,6 @@
+generate 196 ms · clean 55.4 ms · prepare(loss) 31.8 ms
+view           | naive median/p90 ms (pts) | m4 median/p90 ms (pts)
+full 1M        | 25.68/39.81 (1000000) | 1.66/4.56 (3195)
+250k window    | 4.55/11.89 (250003) | 0.87/0.98 (3191)
+10k window     | 0.21/0.32 (10003) | 0.41/0.69 (2943)
+heapUsed 72 MB · arrayBuffers 66 MB
