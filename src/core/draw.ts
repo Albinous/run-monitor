@@ -1,16 +1,41 @@
 import type { Frame, Line } from './frame';
 
 export interface Palette {
-  bg: string; grid: string; axis: string; text: string; line: string; smooth: string; nan: string; inf: string;
+  bg: string;
+  grid: string;
+  axis: string;
+  text: string;
+  line: string;
+  smooth: string;
+  nan: string;
+  inf: string;
 }
 
 /** Subset of the 2D context we use — lets tests pass a recording fake and assert on what is actually drawn. */
 export type Ctx = Pick<
   CanvasRenderingContext2D,
-  'clearRect' | 'fillRect' | 'beginPath' | 'moveTo' | 'lineTo' | 'stroke' | 'fill' | 'save' | 'restore' | 'rect' | 'clip' | 'fillText' | 'setLineDash' | 'closePath'
+  | 'clearRect'
+  | 'fillRect'
+  | 'beginPath'
+  | 'moveTo'
+  | 'lineTo'
+  | 'stroke'
+  | 'fill'
+  | 'save'
+  | 'restore'
+  | 'rect'
+  | 'clip'
+  | 'fillText'
+  | 'setLineDash'
+  | 'closePath'
 > & {
-  fillStyle: unknown; strokeStyle: unknown; lineWidth: number; globalAlpha: number; font: string;
-  textAlign: CanvasTextAlign; textBaseline: CanvasTextBaseline;
+  fillStyle: unknown;
+  strokeStyle: unknown;
+  lineWidth: number;
+  globalAlpha: number;
+  font: string;
+  textAlign: CanvasTextAlign;
+  textBaseline: CanvasTextBaseline;
 };
 
 /** Sizes in CSS pixels, opacity from 0 to 1. */

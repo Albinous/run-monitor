@@ -8,7 +8,19 @@ import { summarize } from '../src/core/summary';
 import { RUN_SPECS, SPIKE, baseRun } from '../src/data/generate';
 import { columnExtents, frameFor, raw, recordingCtx, vertices } from './helpers';
 
-const PAL = { bg: '#fff', grid: '#eee', axis: '#333', text: '#444', line: '#00f', smooth: '#000', nan: '#f00', inf: '#f00' };
+/** Parses an en-US number label: "250,000" -> 250000. */
+const parseEn = (label: string) => Number(label.replaceAll(',', ''));
+
+const PAL = {
+  bg: '#fff',
+  grid: '#eee',
+  axis: '#333',
+  text: '#444',
+  line: '#00f',
+  smooth: '#000',
+  nan: '#f00',
+  inf: '#f00',
+};
 
 // ───────────────────────────────────────────── 1M points + single spike
 describe('1M-point run: the single spike is visible at every zoom level', () => {
@@ -47,19 +59,21 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
           // y domain contains the spike
           expect(f.y.domainMax).toBeGreaterThanOrEqual(SPIKE.value);
           // the spike vertex is in the drawn polyline …
-          const all = f.lines.flatMap((l) => Array.from(l.idx));
+          const all = f.lines.flatMap((l) => [...l.idx]);
           expect(all).toContain(SPIKE.index);
           // … and it is the highest vertex on screen (smallest y px), inside the plot rect
-          let minY = Infinity, spikeY = NaN;
-          for (const l of f.lines) for (let t = 0; t < l.idx.length; t++) {
-            const y = l.px[2 * t + 1];
-            if (y < minY) minY = y;
-            if (l.idx[t] === SPIKE.index) spikeY = y;
-          }
+          let minY = Infinity,
+            spikeY = Number.NaN;
+          for (const l of f.lines)
+            for (let t = 0; t < l.idx.length; t++) {
+              const y = l.px[2 * t + 1];
+              if (y < minY) minY = y;
+              if (l.idx[t] === SPIKE.index) spikeY = y;
+            }
           expect(spikeY).toBe(minY);
           expect(spikeY).toBeGreaterThanOrEqual(f.plot.top);
           // the drawn spike is tall: >40% of plot height above the median line level (not a 1px blip)
-          expect(f.y.map(2.0) - spikeY).toBeGreaterThan(f.plot.height * 0.4);
+          expect(f.y.toPixel(2) - spikeY).toBeGreaterThan(f.plot.height * 0.4);
         }
       }
     });
@@ -67,7 +81,7 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
 
   it('spike stays visible with heavy smoothing on (raw line is still drawn)', () => {
     const f = frame(0, 999_999, 876, 0.99);
-    expect(f.lines.flatMap((l) => Array.from(l.idx))).toContain(SPIKE.index);
+    expect(f.lines.flatMap((l) => [...l.idx])).toContain(SPIKE.index);
     expect(f.smoothLines.length).toBeGreaterThan(0);
   });
 
@@ -77,9 +91,24 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
   });
 
   it('M4 output covers exactly the same per-pixel vertical extent as drawing all points', () => {
-    for (const [x0, x1] of [[0, 999_999], [400_000, 600_000], [499_000, 501_000], [123_456, 654_321]]) {
+    for (const [x0, x1] of [
+      [0, 999_999],
+      [400_000, 600_000],
+      [499_000, 501_000],
+      [123_456, 654_321],
+    ]) {
       const m4 = frame(x0, x1);
-      const naive = computeFrame({ series, metric: 'loss', prep, scale: 'linear', view: { x0, x1 }, width: 876, height: 220, smoothing: 0, mode: 'naive' });
+      const naive = computeFrame({
+        series,
+        metric: 'loss',
+        prep,
+        scale: 'linear',
+        view: { x0, x1 },
+        width: 876,
+        height: 220,
+        smoothing: 0,
+        mode: 'naive',
+      });
       // windows with <= 4 points/px are drawn in full (no downsampling needed)
       expect(m4.drawnPoints).toBeLessThanOrEqual(naive.drawnPoints);
       const a = columnExtents(m4, series.step, x0, x1);
@@ -101,7 +130,7 @@ describe('1M-point run: the single spike is visible at every zoom level', () => 
 describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
   const steps = Array.from({ length: 200 }, (_, i) => i);
   const loss = steps.map((i) => 1 + 0.1 * Math.sin(i / 5)); // values in [0.9, 1.1]
-  loss[50] = NaN;
+  loss[50] = Number.NaN;
   loss[120] = Infinity;
   loss[121] = -Infinity;
 
@@ -114,18 +143,29 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
   it('every drawn vertex is a finite raw value; the line breaks at NaN/±Inf', () => {
     const { frame, series } = frameFor(raw(steps, loss));
     const vs = vertices(frame, series.values.loss, series.step);
-    for (const line of vs) for (const p of line) {
-      expect(Number.isFinite(p.value)).toBe(true);
-      expect(p.value).toBeGreaterThan(0.85);
-    }
+    for (const line of vs)
+      for (const p of line) {
+        expect(Number.isFinite(p.value)).toBe(true);
+        expect(p.value).toBeGreaterThan(0.85);
+      }
     // three breaks -> segments [0,50) [51,120) [122,200)
-    expect(vs.map((l) => [l[0].step, l[l.length - 1].step])).toEqual([[0, 49], [51, 119], [122, 199]]);
+    expect(vs.map((l) => [l[0].step, l.at(-1)!.step])).toEqual([
+      [0, 49],
+      [51, 119],
+      [122, 199],
+    ]);
   });
 
   it('NaN / ±Inf get explicit markers at their exact steps', () => {
     const { frame } = frameFor(raw(steps, loss));
     const m = frame.markers.map((x) => [x.kind, x.step]);
-    expect(m).toEqual(expect.arrayContaining([['nan', 50], ['posInf', 120], ['negInf', 121]]));
+    expect(m).toEqual(
+      expect.arrayContaining([
+        ['nan', 50],
+        ['posInf', 120],
+        ['negInf', 121],
+      ]),
+    );
     expect(frame.notes.join(' ')).toMatch(/1 NaN/);
   });
 
@@ -135,7 +175,7 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
     drawFrame(ctx as never, frame, 876, 220, PAL, false);
     for (const c of calls) for (const a of c.args) expect(Number.isFinite(a)).toBe(true);
     // a lineTo whose x is at the NaN step would mean we connected through it
-    const nanX = frame.x.map(50);
+    const nanX = frame.x.toPixel(50);
     const lineTos = calls.filter((c) => c.op === 'lineTo' && Math.abs(c.args[0] - nanX) < 0.01);
     // only the dashed full-height NaN marker may sit at that x
     for (const c of lineTos) expect(c.args[1]).toBe(frame.plot.top + frame.plot.height);
@@ -144,7 +184,11 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
   it('EMA smoothing restarts after NaN instead of bridging it', () => {
     const { frame, series } = frameFor(raw(steps, loss), { smoothing: 0.9 });
     const sm = vertices(frame, series.values.loss, series.step, 'smoothLines');
-    expect(sm.map((l) => [l[0].step, l[l.length - 1].step])).toEqual([[0, 49], [51, 119], [122, 199]]);
+    expect(sm.map((l) => [l[0].step, l.at(-1)!.step])).toEqual([
+      [0, 49],
+      [51, 119],
+      [122, 199],
+    ]);
     // debiased EMA's first value after a restart equals the raw value
     const prep = frameFor(raw(steps, loss), { smoothing: 0.9 }).prep;
     const sv = [...prep.smoothCache.values()][0].values;
@@ -153,12 +197,13 @@ describe('NaN and Infinity are never drawn as 0 nor smoothed over', () => {
   });
 
   it('an isolated finite point between two NaNs is still drawn (as a dot)', () => {
-    const l2 = loss.slice();
-    l2[60] = NaN; l2[62] = NaN; // 61 is alone
+    const l2 = [...loss];
+    l2[60] = Number.NaN;
+    l2[62] = Number.NaN; // 61 is alone
     const { frame } = frameFor(raw(steps, l2));
     const { ctx, calls } = recordingCtx();
     drawFrame(ctx as never, frame, 876, 220, PAL, false);
-    const x61 = frame.x.map(61);
+    const x61 = frame.x.toPixel(61);
     expect(calls.some((c) => c.op === 'fillRect' && Math.abs(c.args[0] + 1.5 - x61) < 0.01)).toBe(true);
   });
 });
@@ -169,26 +214,26 @@ describe('duplicates and unsorted steps do not distort the line', () => {
 
   it('shuffled + duplicated input produces the identical drawn line as the clean input', () => {
     const n = clean.step.length;
-    const order = Array.from({ length: n }, (_, i) => i).reverse(); // fully reversed
+    const order = Array.from({ length: n }, (_, i) => i).toReversed(); // fully reversed
     // prepend STALE duplicates of 500 steps (written first, so they must lose)
-    const dupIdx = Array.from({ length: 500 }, (_, i) => 1000 + i);
-    const st = [...dupIdx.map((i) => clean.step[i]), ...order.map((i) => clean.step[i])];
-    const ls = [...dupIdx.map(() => 99), ...order.map((i) => clean.loss[i])];
+    const staleDuplicateIndices = Array.from({ length: 500 }, (_, i) => 1000 + i);
+    const st = [...staleDuplicateIndices.map((i) => clean.step[i]), ...order.map((i) => clean.step[i])];
+    const ls = [...staleDuplicateIndices.map(() => 99), ...order.map((i) => clean.loss[i])];
     const messy = raw(st, ls);
     const a = frameFor(clean);
     const b = frameFor(messy);
     expect(b.series.report.duplicatesDropped).toBe(500);
     expect(b.series.report.wasUnsorted).toBe(true);
-    expect(Array.from(b.series.step)).toEqual(Array.from(clean.step));
-    expect(Array.from(b.series.values.loss)).toEqual(Array.from(clean.loss));
-    expect(b.frame.lines.map((l) => Array.from(l.px))).toEqual(a.frame.lines.map((l) => Array.from(l.px)));
+    expect([...b.series.step]).toEqual([...clean.step]);
+    expect([...b.series.values.loss]).toEqual([...clean.loss]);
+    expect(b.frame.lines.map((l) => [...l.px])).toEqual(a.frame.lines.map((l) => [...l.px]));
     expect(b.frame.y.domainMax).toBeLessThan(20); // the stale 99s did not leak into the domain
   });
 
   it('later write wins for duplicated steps (resume from checkpoint)', () => {
     const s = cleanRun(raw([0, 1, 2, 1, 2, 3], [5, 4, 3, 40, 30, 2]));
-    expect(Array.from(s.step)).toEqual([0, 1, 2, 3]);
-    expect(Array.from(s.values.loss)).toEqual([5, 40, 30, 2]);
+    expect([...s.step]).toEqual([0, 1, 2, 3]);
+    expect([...s.values.loss]).toEqual([5, 40, 30, 2]);
   });
 
   it('the drawn polyline is strictly increasing in x', () => {
@@ -200,10 +245,13 @@ describe('duplicates and unsorted steps do not distort the line', () => {
   it('logging gaps break the line instead of interpolating', () => {
     const r07 = RUN_SPECS.find((s) => s.id === 'r07')!.build();
     const { frame, series } = frameFor(r07);
-    expect(series.report.gaps).toEqual([{ from: 59_990, to: 70_000 }, { from: 119_990, to: 122_000 }]);
+    expect(series.report.gaps).toEqual([
+      { from: 59_990, to: 70_000 },
+      { from: 119_990, to: 122_000 },
+    ]);
     const v = vertices(frame, series.values.loss, series.step);
     expect(v.length).toBe(3);
-    expect(v[0][v[0].length - 1].step).toBe(59_990);
+    expect(v[0].at(-1)!.step).toBe(59_990);
     expect(v[1][0].step).toBe(70_000);
   });
 
@@ -211,14 +259,12 @@ describe('duplicates and unsorted steps do not distort the line', () => {
     const r05 = RUN_SPECS.find((s) => s.id === 'r05')!.build();
     const ref = baseRun({ n: 10_000, stride: 10, seed: 5 });
     const s = cleanRun(r05);
-    expect(Array.from(s.values.loss)).toEqual(Array.from(ref.loss));
+    expect([...s.values.loss]).toEqual([...ref.loss]);
   });
 });
 
 // ───────────────────────────────────────────── numbers & axis labels
 describe('numbers and axis labels match the data', () => {
-  const parseEn = (s: string) => Number(s.replace(/,/g, ''));
-
   it('y tick labels parse back to their tick values, ticks sit at the right pixel, all in-domain, all distinct', () => {
     for (const id of ['r01', 'r04', 'r08', 'r16']) {
       const spec = RUN_SPECS.find((s) => s.id === id)!;
@@ -231,7 +277,7 @@ describe('numbers and axis labels match the data', () => {
           expect(t.value).toBeGreaterThanOrEqual(frame.y.domainMin);
           expect(t.value).toBeLessThanOrEqual(frame.y.domainMax);
           expect(Math.abs(parseEn(t.label) - t.value)).toBeLessThanOrEqual(Math.abs(t.value) * 1e-9 + 1e-15);
-          expect(frame.y.invert(t.px)).toBeCloseTo(t.value, 9);
+          expect(frame.y.toValue(t.px)).toBeCloseTo(t.value, 9);
         }
         for (const t of frame.xTicks) {
           expect(parseEn(t.label)).toBe(t.value);
@@ -248,11 +294,12 @@ describe('numbers and axis labels match the data', () => {
 
   it('a drawn vertex sits exactly where its raw value maps on the axis', () => {
     const { frame, series } = frameFor(RUN_SPECS.find((s) => s.id === 'r03')!.build());
-    for (const l of frame.lines) for (let t = 0; t < l.idx.length; t += 37) {
-      const i = l.idx[t];
-      expect(frame.y.invert(l.px[2 * t + 1])).toBeCloseTo(series.values.loss[i], 4);
-      expect(frame.x.invert(l.px[2 * t])).toBeCloseTo(series.step[i], 1);
-    }
+    for (const l of frame.lines)
+      for (let t = 0; t < l.idx.length; t += 37) {
+        const i = l.idx[t];
+        expect(frame.y.toValue(l.px[2 * t + 1])).toBeCloseTo(series.values.loss[i], 4);
+        expect(frame.x.toValue(l.px[2 * t])).toBeCloseTo(series.step[i], 1);
+      }
   });
 
   it('summary cards equal a brute-force computation on the RAW (unsorted, duplicated) input', () => {
@@ -261,13 +308,13 @@ describe('numbers and axis labels match the data', () => {
       // independent reference: Map keyed by step, later write wins
       const m = new Map<number, number>();
       for (let i = 0; i < r.step.length; i++) m.set(r.step[i], r.loss[i]);
-      const keys = [...m.keys()].sort((a, b) => a - b);
+      const keys = [...m.keys()].toSorted((a, b) => a - b);
       const finite = keys.filter((k) => Number.isFinite(m.get(k)!));
       const min = Math.min(...finite.map((k) => m.get(k)!));
       const s = summarize(cleanRun(r));
       expect(s.points).toBe(keys.length);
-      expect(s.lastStep).toBe(keys[keys.length - 1]);
-      expect(Object.is(s.lossAtLastStep, m.get(keys[keys.length - 1]))).toBe(true);
+      expect(s.lastStep).toBe(keys.at(-1));
+      expect(Object.is(s.lossAtLastStep, m.get(keys.at(-1)!))).toBe(true);
       expect(s.minLoss!.value).toBe(min);
     }
   });
@@ -289,7 +336,7 @@ describe('numbers and axis labels match the data', () => {
   it('formatting is locale-aware but never changes the number', () => {
     expect(formatTick(0.5, 0.1, 'de-DE')).toBe('0,5');
     expect(formatTick(0.5, 0.1, 'en-US')).toBe('0.5');
-    expect(formatTick(250000, 50000, 'en-US')).toBe('250,000');
+    expect(formatTick(250_000, 50_000, 'en-US')).toBe('250,000');
     expect(formatTick(0.0003, 0.0001, 'en-US')).toBe('3E-4');
   });
 });

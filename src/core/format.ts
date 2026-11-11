@@ -69,7 +69,10 @@ export function formatValue(value: number | null | undefined, locale: string): s
   const special = formatSpecial(value);
   if (special) return special;
   if (needsScientific(value)) {
-    return numberFormatter(locale, { notation: 'scientific', maximumSignificantDigits: SCIENTIFIC_VALUE_DIGITS }).format(value);
+    return numberFormatter(locale, {
+      notation: 'scientific',
+      maximumSignificantDigits: SCIENTIFIC_VALUE_DIGITS,
+    }).format(value);
   }
   return numberFormatter(locale, { maximumSignificantDigits: VALUE_DIGITS }).format(value);
 }
@@ -84,7 +87,13 @@ export function formatDateTime(iso: string, locale: string, timeZone?: string): 
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return 'invalid date';
   return new Intl.DateTimeFormat(locale, {
-    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short', timeZone,
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone,
   }).format(date);
 }
 

@@ -1,9 +1,16 @@
 import type { CleanSeries } from './clean';
-import { bucketEdge, emaSmooth, m4Indices } from './downsample';
+import { emaSmooth, m4Indices } from './downsample';
 import { formatTick } from './format';
 import {
-  type BlockIndex, type Validity, buildBlockIndex, computeInvalid, computeSegments,
-  lowerBound, rangeExtent, rangeMinPositive, upperBound,
+  type BlockIndex,
+  type Validity,
+  buildBlockIndex,
+  computeInvalid,
+  computeSegments,
+  lowerBound,
+  rangeExtent,
+  rangeMinPositive,
+  upperBound,
 } from './index';
 import type { Metric, ScaleKind } from './types';
 
@@ -66,25 +73,41 @@ export interface Scale {
   /** Pixel for domainMin. For the y axis this is the bottom of the plot, so rangeStart > rangeEnd. */
   rangeStart: number;
   rangeEnd: number;
-  map(value: number): number;
-  invert(pixel: number): number;
+  /** Data value -> pixel. */
+  toPixel(value: number): number;
+  /** Pixel -> data value (e.g. which step is under the mouse). */
+  toValue(pixel: number): number;
 }
 
-export function makeScale(kind: ScaleKind, domainMin: number, domainMax: number, rangeStart: number, rangeEnd: number): Scale {
+export function makeScale(
+  kind: ScaleKind,
+  domainMin: number,
+  domainMax: number,
+  rangeStart: number,
+  rangeEnd: number,
+): Scale {
   const pixels = rangeEnd - rangeStart;
   if (kind === 'log') {
     const logMin = Math.log10(domainMin);
     const logMax = Math.log10(domainMax);
     return {
-      kind, domainMin, domainMax, rangeStart, rangeEnd,
-      map: (value) => rangeStart + ((Math.log10(value) - logMin) / (logMax - logMin)) * pixels,
-      invert: (pixel) => 10 ** (logMin + ((pixel - rangeStart) / pixels) * (logMax - logMin)),
+      kind,
+      domainMin,
+      domainMax,
+      rangeStart,
+      rangeEnd,
+      toPixel: (value) => rangeStart + ((Math.log10(value) - logMin) / (logMax - logMin)) * pixels,
+      toValue: (pixel) => 10 ** (logMin + ((pixel - rangeStart) / pixels) * (logMax - logMin)),
     };
   }
   return {
-    kind, domainMin, domainMax, rangeStart, rangeEnd,
-    map: (value) => rangeStart + ((value - domainMin) / (domainMax - domainMin)) * pixels,
-    invert: (pixel) => domainMin + ((pixel - rangeStart) / pixels) * (domainMax - domainMin),
+    kind,
+    domainMin,
+    domainMax,
+    rangeStart,
+    rangeEnd,
+    toPixel: (value) => rangeStart + ((value - domainMin) / (domainMax - domainMin)) * pixels,
+    toValue: (pixel) => domainMin + ((pixel - rangeStart) / pixels) * (domainMax - domainMin),
   };
 }
 
@@ -124,11 +147,24 @@ export function logTicks(min: number, max: number): number[] {
   return withMultiples;
 }
 
-export interface Tick { value: number; label: string; px: number }
+export interface Tick {
+  value: number;
+  label: string;
+  px: number;
+}
 export type MarkerKind = 'nan' | 'posInf' | 'negInf' | 'nonPositive';
-export interface Marker { kind: MarkerKind; idx: number; step: number; px: number; count: number }
+export interface Marker {
+  kind: MarkerKind;
+  idx: number;
+  step: number;
+  px: number;
+  count: number;
+}
 /** One continuous line: `idx` = indices into the series, `px` = [x0, y0, x1, y1, ...] in pixels. */
-export interface Line { idx: Int32Array; px: Float32Array }
+export interface Line {
+  idx: Int32Array;
+  px: Float32Array;
+}
 
 export interface Frame {
   plot: { left: number; top: number; width: number; height: number };
@@ -210,9 +246,10 @@ export function computeFrame(input: FrameInput): Frame {
     yMax = maxValue * paddingFactor;
   } else {
     const span = maxValue - minValue;
-    const padding = span > 0
-      ? span * Y_PADDING_FRACTION
-      : Math.abs(maxValue) * FLAT_LINE_PADDING_FRACTION || FLAT_LINE_PADDING_AT_ZERO;
+    const padding =
+      span > 0
+        ? span * Y_PADDING_FRACTION
+        : Math.abs(maxValue) * FLAT_LINE_PADDING_FRACTION || FLAT_LINE_PADDING_AT_ZERO;
     yMin = minValue - padding;
     yMax = maxValue + padding;
   }
@@ -221,14 +258,26 @@ export function computeFrame(input: FrameInput): Frame {
   // --- ticks (x axis: steps are integers, so the tick spacing is at least 1)
   const xTickCount = Math.max(MIN_TICKS, Math.floor(plot.width / PX_PER_X_TICK));
   const xTickSet = linearTicks(viewStart, viewEnd, xTickCount, 1);
-  const xTicks = xTickSet.values.map((value) => ({ value, label: formatTick(value, xTickSet.step, locale), px: x.map(value) }));
+  const xTicks = xTickSet.values.map((value) => ({
+    value,
+    label: formatTick(value, xTickSet.step, locale),
+    px: x.toPixel(value),
+  }));
   let yTicks: Tick[];
   if (scale === 'log') {
-    yTicks = logTicks(yMin, yMax).map((value) => ({ value, label: formatTick(value, null, locale), px: y.map(value) }));
+    yTicks = logTicks(yMin, yMax).map((value) => ({
+      value,
+      label: formatTick(value, null, locale),
+      px: y.toPixel(value),
+    }));
   } else {
     const yTickCount = Math.max(MIN_TICKS, Math.floor(plot.height / PX_PER_Y_TICK));
     const yTickSet = linearTicks(yMin, yMax, yTickCount);
-    yTicks = yTickSet.values.map((value) => ({ value, label: formatTick(value, yTickSet.step, locale), px: y.map(value) }));
+    yTicks = yTickSet.values.map((value) => ({
+      value,
+      label: formatTick(value, yTickSet.step, locale),
+      px: y.toPixel(value),
+    }));
   }
 
   // --- lines (per segment, never across NaN/Inf/gap)
@@ -251,14 +300,24 @@ export function computeFrame(input: FrameInput): Frame {
       const segmentStart = segments[2 * s];
       const segmentEnd = segments[2 * s + 1];
       if (step[segmentStart] > viewEnd) break;
-      const idx = m4Indices(step, lineValues, lineIndex, segmentStart, segmentEnd, viewStart, viewEnd, columns, naive);
-      if (idx.length === 0) continue;
-      const px = new Float32Array(idx.length * 2);
-      for (let p = 0; p < idx.length; p++) {
-        px[2 * p] = x.map(step[idx[p]]);
-        px[2 * p + 1] = y.map(lineValues[idx[p]]);
+      const indices = m4Indices(
+        step,
+        lineValues,
+        lineIndex,
+        segmentStart,
+        segmentEnd,
+        viewStart,
+        viewEnd,
+        columns,
+        naive,
+      );
+      if (indices.length === 0) continue;
+      const px = new Float32Array(indices.length * 2);
+      for (const [p, pointIndex] of indices.entries()) {
+        px[2 * p] = x.toPixel(step[pointIndex]);
+        px[2 * p + 1] = y.toPixel(lineValues[pointIndex]);
       }
-      out.push({ idx, px });
+      out.push({ idx: indices, px });
     }
     return out;
   };
@@ -286,9 +345,9 @@ export function computeFrame(input: FrameInput): Frame {
     const i = invalid[p];
     const value = values[i];
     const kind: MarkerKind =
-      value !== value ? 'nan' : value === Infinity ? 'posInf' : value === -Infinity ? 'negInf' : 'nonPositive';
+      value === value ? (value === Infinity ? 'posInf' : value === -Infinity ? 'negInf' : 'nonPositive') : 'nan';
     counts[kind]++;
-    const px = x.map(step[i]);
+    const px = x.toPixel(step[i]);
     const key = `${Math.floor(px)}:${kind}`;
     const existing = markersByColumn.get(key);
     if (existing) existing.count++;
@@ -302,8 +361,18 @@ export function computeFrame(input: FrameInput): Frame {
   let drawnPoints = 0;
   for (const line of lines) drawnPoints += line.idx.length;
   return {
-    plot, x, y, xTicks, yTicks, lines, smoothLines, markers: [...markersByColumn.values()], notes,
-    pointsInView: endVisible - firstVisible, drawnPoints, empty,
+    plot,
+    x,
+    y,
+    xTicks,
+    yTicks,
+    lines,
+    smoothLines,
+    markers: [...markersByColumn.values()],
+    notes,
+    pointsInView: endVisible - firstVisible,
+    drawnPoints,
+    empty,
   };
 }
 
@@ -331,4 +400,4 @@ function upperBoundBy(sorted: Int32Array, key: (item: number) => number, target:
   return left;
 }
 
-export { bucketEdge };
+export { bucketEdge } from './downsample';

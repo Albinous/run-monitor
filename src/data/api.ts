@@ -21,7 +21,10 @@ const LIVE_RUN_SEED = 12;
 const LIVE_RUN_DECAY = 2;
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
@@ -65,10 +68,14 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('aborted', 'AbortError'));
     const timer = setTimeout(resolve, milliseconds);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(new DOMException('aborted', 'AbortError'));
-    }, { once: true });
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DOMException('aborted', 'AbortError'));
+      },
+      { once: true },
+    );
   });
 }
 
@@ -76,15 +83,19 @@ const randomLatency = () => MIN_LATENCY_MS + Math.random() * LATENCY_SPREAD_MS;
 
 export async function listRuns(signal?: AbortSignal): Promise<{ runs: RunMeta[]; fetchedAt: number }> {
   await delay(randomLatency(), signal);
-  return { runs: RUN_SPECS.map(metaFor), fetchedAt: Date.now() };
+  return { runs: RUN_SPECS.map((spec) => metaFor(spec)), fetchedAt: Date.now() };
 }
 
-export async function getRun(id: string, signal?: AbortSignal): Promise<{ meta: RunMeta; data: RawRun; fetchedAt: number }> {
+export async function getRun(
+  id: string,
+  signal?: AbortSignal,
+): Promise<{ meta: RunMeta; data: RawRun; fetchedAt: number }> {
   const spec = RUN_SPECS.find((s) => s.id === id);
   await delay(spec?.latencyMs ?? randomLatency(), signal);
   if (!spec) throw new ApiError(404, `Run "${id}" not found`);
   if (spec.alwaysFails) throw new ApiError(500, 'Internal Server Error: metrics shard unavailable');
-  if (spec.live && Math.random() < LIVE_RUN_FAILURE_RATE) throw new ApiError(503, 'Upstream timeout while polling live run');
+  if (spec.live && Math.random() < LIVE_RUN_FAILURE_RATE)
+    throw new ApiError(503, 'Upstream timeout while polling live run');
   return { meta: metaFor(spec), data: rawFor(spec), fetchedAt: Date.now() };
 }
 

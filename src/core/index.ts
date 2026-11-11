@@ -35,8 +35,14 @@ export function buildBlockIndex(values: Float64Array): BlockIndex {
     for (let i = block * BLOCK; i < blockEnd; i++) {
       const value = values[i];
       if (!isFiniteNumber(value)) continue;
-      if (value < minValue) { minValue = value; minIndex = i; }
-      if (value > maxValue) { maxValue = value; maxIndex = i; }
+      if (value < minValue) {
+        minValue = value;
+        minIndex = i;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+        maxIndex = i;
+      }
       if (value > 0 && value < minPositive) minPositive = value;
     }
     min[block] = minValue;
@@ -65,8 +71,14 @@ export function rangeExtent(values: Float64Array, index: BlockIndex, from: numbe
     for (let i = scanFrom; i < scanTo; i++) {
       const value = values[i];
       if (!isFiniteNumber(value)) continue;
-      if (value < minValue) { minValue = value; minIndex = i; }
-      if (value > maxValue) { maxValue = value; maxIndex = i; }
+      if (value < minValue) {
+        minValue = value;
+        minIndex = i;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+        maxIndex = i;
+      }
     }
   };
   // whole blocks inside [from, to) are read from the index; the partial edges are scanned point by point
@@ -77,8 +89,14 @@ export function rangeExtent(values: Float64Array, index: BlockIndex, from: numbe
   } else {
     scan(from, firstFullBlock * BLOCK);
     for (let block = firstFullBlock; block < endFullBlock; block++) {
-      if (index.argmin[block] >= 0 && index.min[block] < minValue) { minValue = index.min[block]; minIndex = index.argmin[block]; }
-      if (index.argmax[block] >= 0 && index.max[block] > maxValue) { maxValue = index.max[block]; maxIndex = index.argmax[block]; }
+      if (index.argmin[block] >= 0 && index.min[block] < minValue) {
+        minValue = index.min[block];
+        minIndex = index.argmin[block];
+      }
+      if (index.argmax[block] >= 0 && index.max[block] > maxValue) {
+        maxValue = index.max[block];
+        maxIndex = index.argmax[block];
+      }
     }
     scan(endFullBlock * BLOCK, to);
   }
@@ -112,11 +130,16 @@ export type Validity = 'finite' | 'positive';
 const isDrawable = (value: number, mode: Validity) => isFiniteNumber(value) && (mode === 'finite' || value > 0);
 
 /** Flat [start0, end0, start1, end1, ...] of maximal drawable runs. */
-export function computeSegments(step: Float64Array, values: Float64Array, gapThreshold: number, mode: Validity): Int32Array {
+export function computeSegments(
+  step: Float64Array,
+  values: Float64Array,
+  gapThreshold: number,
+  mode: Validity,
+): Int32Array {
   const out: number[] = [];
   let start = -1;
-  for (let i = 0; i < values.length; i++) {
-    if (isDrawable(values[i], mode)) {
+  for (const [i, value] of values.entries()) {
+    if (isDrawable(value, mode)) {
       if (start < 0) start = i;
       else if (step[i] - step[i - 1] > gapThreshold) {
         out.push(start, i);
