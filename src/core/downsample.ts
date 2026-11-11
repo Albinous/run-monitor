@@ -51,9 +51,10 @@ export function m4Indices(
     for (let i = columnStart; i < end; i++) out.push(i);
   } else {
     for (let column = 0; column < columns && columnStart < end; column++) {
-      const columnEnd = column === columns - 1
-        ? end
-        : lowerBound(step, bucketEdge(viewStart, viewEnd, columns, column + 1), columnStart, end);
+      const columnEnd =
+        column === columns - 1
+          ? end
+          : lowerBound(step, bucketEdge(viewStart, viewEnd, columns, column + 1), columnStart, end);
       if (columnEnd > columnStart) {
         const extent = rangeExtent(values, index, columnStart, columnEnd);
         const firstInColumn = columnStart;
@@ -79,7 +80,7 @@ export function m4Indices(
  * NaN/Inf and after logging gaps, so it never invents values across missing data. Outside segments -> NaN.
  */
 export function emaSmooth(values: Float64Array, segments: Int32Array, weight: number): Float64Array {
-  const out = new Float64Array(values.length).fill(NaN);
+  const out = new Float64Array(values.length).fill(Number.NaN);
   for (let s = 0; s < segments.length; s += 2) {
     let average = 0;
     let debias = 0; // corrects the bias towards 0 at the start of every segment

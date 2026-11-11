@@ -61,7 +61,7 @@ export function cleanRun(raw: RawRun): CleanSeries {
   order = order.subarray(0, validCount);
   if (!sorted) {
     // stable: equal steps keep their original (log) order, so "last in group" == "last written"
-    order = order.slice().sort((a, b) => rawStep[a] - rawStep[b] || a - b);
+    order = order.toSorted((a, b) => rawStep[a] - rawStep[b] || a - b);
   }
 
   // 2. drop duplicate steps, keeping the last written one
@@ -125,8 +125,15 @@ export function cleanRun(raw: RawRun): CleanSeries {
     step,
     values,
     report: {
-      input: inputCount, invalidSteps, duplicatesDropped: duplicates, wasUnsorted: !sorted,
-      medianStride, gapThreshold, gaps, nonFinite, nonPositive,
+      input: inputCount,
+      invalidSteps,
+      duplicatesDropped: duplicates,
+      wasUnsorted: !sorted,
+      medianStride,
+      gapThreshold,
+      gaps,
+      nonFinite,
+      nonPositive,
     },
   };
 }

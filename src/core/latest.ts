@@ -5,22 +5,28 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: unknown };
  * so even a backend that ignores AbortSignal cannot deliver a stale response (run A arriving after run B).
  */
 export function createLatest<T>() {
-  let seq = 0;
-  let ctrl: AbortController | null = null;
+  let latestRequest = 0;
+  let controller: AbortController | null = null;
   return {
-    run(fn: (signal: AbortSignal) => Promise<T>, onResult: (r: Result<T>) => void) {
-      ctrl?.abort();
-      const my = ++seq;
-      const c = new AbortController();
-      ctrl = c;
-      fn(c.signal).then(
-        (value) => { if (my === seq && !c.signal.aborted) onResult({ ok: true, value }); },
-        (error) => { if (my === seq && !c.signal.aborted) onResult({ ok: false, error }); },
+    run(request: (signal: AbortSignal) => Promise<T>, onResult: (result: Result<T>) => void) {
+      controller?.abort();
+      const thisRequest = ++latestRequest;
+      const ownController = new AbortController();
+      controller = ownController;
+      // deliver only if no newer request was started and this one wasn't cancelled
+      const isCurrent = () => thisRequest === latestRequest && !ownController.signal.aborted;
+      request(ownController.signal).then(
+        (value) => {
+          if (isCurrent()) onResult({ ok: true, value });
+        },
+        (error) => {
+          if (isCurrent()) onResult({ ok: false, error });
+        },
       );
     },
     cancel() {
-      ctrl?.abort();
-      seq++;
+      controller?.abort();
+      latestRequest++;
     },
   };
 }

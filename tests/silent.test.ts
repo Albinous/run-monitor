@@ -14,8 +14,14 @@ describe('request race when switching runs quickly', () => {
     const latest = createLatest<string>();
     const got: string[] = [];
     // backend that IGNORES the abort signal (worst case)
-    latest.run(() => sleep(60).then(() => 'A'), (r) => r.ok && got.push(r.value));
-    latest.run(() => sleep(10).then(() => 'B'), (r) => r.ok && got.push(r.value));
+    latest.run(
+      () => sleep(60).then(() => 'A'),
+      (r) => r.ok && got.push(r.value),
+    );
+    latest.run(
+      () => sleep(10).then(() => 'B'),
+      (r) => r.ok && got.push(r.value),
+    );
     await sleep(100);
     expect(got).toEqual(['B']);
   });
@@ -23,9 +29,21 @@ describe('request race when switching runs quickly', () => {
   it('A→B→C rapid switching delivers only C, and errors from stale requests are dropped too', async () => {
     const latest = createLatest<string>();
     const got: string[] = [];
-    latest.run(() => sleep(30).then(() => { throw new Error('A failed'); }), (r) => got.push(r.ok ? r.value : 'err'));
-    latest.run(() => sleep(50).then(() => 'B'), (r) => got.push(r.ok ? r.value : 'err'));
-    latest.run(() => sleep(5).then(() => 'C'), (r) => got.push(r.ok ? r.value : 'err'));
+    latest.run(
+      () =>
+        sleep(30).then(() => {
+          throw new Error('A failed');
+        }),
+      (r) => got.push(r.ok ? r.value : 'err'),
+    );
+    latest.run(
+      () => sleep(50).then(() => 'B'),
+      (r) => got.push(r.ok ? r.value : 'err'),
+    );
+    latest.run(
+      () => sleep(5).then(() => 'C'),
+      (r) => got.push(r.ok ? r.value : 'err'),
+    );
     await sleep(80);
     expect(got).toEqual(['C']);
   });
@@ -33,15 +51,27 @@ describe('request race when switching runs quickly', () => {
   it('the previous request is aborted (network is freed)', () => {
     const latest = createLatest<string>();
     let sig: AbortSignal | undefined;
-    latest.run((s) => { sig = s; return new Promise(() => {}); }, () => {});
-    latest.run(() => new Promise(() => {}), () => {});
+    latest.run(
+      (s) => {
+        sig = s;
+        return new Promise(() => {});
+      },
+      () => {},
+    );
+    latest.run(
+      () => new Promise(() => {}),
+      () => {},
+    );
     expect(sig!.aborted).toBe(true);
   });
 
   it('cancel() (unmount / navigate away) drops an in-flight result', async () => {
     const latest = createLatest<string>();
     const got: string[] = [];
-    latest.run(() => sleep(10).then(() => 'A'), (r) => r.ok && got.push(r.value));
+    latest.run(
+      () => sleep(10).then(() => 'A'),
+      (r) => r.ok && got.push(r.value),
+    );
     latest.cancel();
     await sleep(30);
     expect(got).toEqual([]);
@@ -63,10 +93,10 @@ describe('locale and time zone', () => {
   });
 
   it('sorting by start time uses epoch ms, so locale string order cannot leak in', () => {
-    const asc = [...RUN_SPECS].sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
+    const asc = RUN_SPECS.toSorted((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
     const fmt = asc.map((s) => formatDateTime(s.startedAt, 'de-DE', 'UTC'));
     // de-DE strings ("4. Nov.", "10. Nov.") do NOT sort chronologically — proof that sorting strings would be wrong
-    expect([...fmt].sort()).not.toEqual(fmt);
+    expect(fmt.toSorted()).not.toEqual(fmt);
   });
 
   it('invalid dates say so instead of "Invalid Date" or 1970', () => {

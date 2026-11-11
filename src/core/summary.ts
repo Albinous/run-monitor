@@ -1,7 +1,10 @@
 import type { CleanSeries } from './clean';
 import { METRICS, type Metric } from './types';
 
-export interface At { step: number; value: number }
+export interface At {
+  step: number;
+  value: number;
+}
 
 export interface Summary {
   points: number;
@@ -19,7 +22,7 @@ export interface Summary {
 }
 
 /** "Recent trend" compares the mean raw loss of the last 5% of points with the 5% before. */
-const TREND_WINDOW_FRACTION = 0.05;
+export const TREND_WINDOW_FRACTION = 0.05;
 /** With fewer points per window the trend is just noise, so it is not shown. */
 const MIN_TREND_WINDOW = 5;
 
@@ -59,9 +62,12 @@ export function summarize(series: CleanSeries): Summary {
       let sum = 0;
       let finiteCount = 0;
       for (let i = from; i < to; i++) {
-        if (Number.isFinite(loss[i])) { sum += loss[i]; finiteCount++; }
+        if (Number.isFinite(loss[i])) {
+          sum += loss[i];
+          finiteCount++;
+        }
       }
-      return finiteCount ? sum / finiteCount : NaN;
+      return finiteCount ? sum / finiteCount : Number.NaN;
     };
     const recent = meanFiniteLoss(count - window, count);
     const before = meanFiniteLoss(count - 2 * window, count - window);
