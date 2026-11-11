@@ -1,0 +1,55 @@
+
+ RUN  v2.1.8 C:/Users/Albina/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/scratch-workspaces/8c944385-4802-498a-b894-82552c42975d/1a3027fd-3758-4c67-a957-43f060e0c7d8/scratch-2026-11-10-4fd616/run-monitor
+
+ ✓ tests/silent.test.ts > request race when switching runs quickly > a slow response for run A that arrives after run B is dropped
+ ✓ tests/silent.test.ts > request race when switching runs quickly > A→B→C rapid switching delivers only C, and errors from stale requests are dropped too
+ ✓ tests/silent.test.ts > request race when switching runs quickly > the previous request is aborted (network is freed)
+ ✓ tests/silent.test.ts > request race when switching runs quickly > cancel() (unmount / navigate away) drops an in-flight result
+ ✓ tests/silent.test.ts > locale and time zone > the same instant shows the correct local date with an explicit zone name
+ ✓ tests/silent.test.ts > locale and time zone > sorting by start time uses epoch ms, so locale string order cannot leak in
+ ✓ tests/silent.test.ts > locale and time zone > invalid dates say so instead of "Invalid Date" or 1970
+ ✓ tests/silent.test.ts > smoothing that hides divergence > r13: raw recent trend flags the late blow-up even though heavy EMA barely moves
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > 20 runs
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > NaN in loss
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > Infinity in loss
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > duplicate steps
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > unsorted steps
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > gaps
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > one run with 1,000,000 points
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > empty run
+ ✓ tests/data.test.ts > generated dataset contains every defect the task asks for > generation is deterministic
+ ✓ tests/silent.test.ts > stale data > list "last loss" for a diverged run is the value at the last step (NaN), not the last finite value 948ms
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > data sanity: exactly one outlier, 1,000,000 points
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > width 300px: spike reaches the top of the y-domain and is drawn at the top-most vertex (16 zoom levels × 4 placements)
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > width 876px: spike reaches the top of the y-domain and is drawn at the top-most vertex (16 zoom levels × 4 placements)
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > width 1600px: spike reaches the top of the y-domain and is drawn at the top-most vertex (16 zoom levels × 4 placements)
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > spike stays visible with heavy smoothing on (raw line is still drawn)
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > when the spike is NOT in view, the y-domain does not keep a stale max
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > M4 output covers exactly the same per-pixel vertical extent as drawing all points
+ ✓ tests/truth.test.ts > 1M-point run: the single spike is visible at every zoom level > draws at most ~4 points per pixel column
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > y-domain is computed from finite values only (would stretch to 0 if NaN were 0)
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > every drawn vertex is a finite raw value; the line breaks at NaN/±Inf
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > NaN / ±Inf get explicit markers at their exact steps
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > the canvas never receives a NaN coordinate and never a lineTo across the NaN step
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > EMA smoothing restarts after NaN instead of bridging it
+ ✓ tests/truth.test.ts > NaN and Infinity are never drawn as 0 nor smoothed over > an isolated finite point between two NaNs is still drawn (as a dot)
+ ✓ tests/truth.test.ts > duplicates and unsorted steps do not distort the line > shuffled + duplicated input produces the identical drawn line as the clean input
+ ✓ tests/truth.test.ts > duplicates and unsorted steps do not distort the line > later write wins for duplicated steps (resume from checkpoint)
+ ✓ tests/truth.test.ts > duplicates and unsorted steps do not distort the line > the drawn polyline is strictly increasing in x
+ ✓ tests/truth.test.ts > duplicates and unsorted steps do not distort the line > logging gaps break the line instead of interpolating
+ ✓ tests/truth.test.ts > duplicates and unsorted steps do not distort the line > real r05 run: the corrupted pre-crash values are not shown
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > y tick labels parse back to their tick values, ticks sit at the right pixel, all in-domain, all distinct 753ms
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > log axis ticks are exact and labelled correctly
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > a drawn vertex sits exactly where its raw value maps on the axis
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > summary cards equal a brute-force computation on the RAW (unsorted, duplicated) input
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > diverged run: "loss at last step" is NaN, not the last pretty value
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > hover reads the exact raw value at the nearest step
+ ✓ tests/truth.test.ts > numbers and axis labels match the data > formatting is locale-aware but never changes the number
+ ✓ tests/truth.test.ts > log scale with zeros / negatives > lr starts and ends at exactly 0: zeros are markers, not -Infinity pixels, and the domain stays positive
+ ✓ tests/truth.test.ts > log scale with zeros / negatives > the same zeros ARE drawn on a linear axis
+
+ Test Files  3 passed (3)
+      Tests  46 passed (46)
+   Start at  10:33:53
+   Duration  2.79s (transform 282ms, setup 0ms, collect 480ms, tests 3.50s, environment 1ms, prepare 845ms)
+
