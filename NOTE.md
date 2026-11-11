@@ -1,6 +1,6 @@
 # Training-run monitor — note
 
-**Repo:** `<repo link>` · **Live:** `<deployed link>` · Vite + React + TS, own Canvas 2D renderer, Vitest.
+**Repo:** https://github.com/Albinous/run-monitor · **Live:** https://albinous.github.io/run-monitor/ · Vite + React + TS, own Canvas 2D renderer, Vitest.
 Tests: `npm test` → [test-output.txt](test-output.txt) (46/46). Bench: `npx vite-node scripts/bench.ts` → [bench-output.txt](bench-output.txt). Features and screenshots: [README](README.md).
 
 ## 1. How the chart stays truthful

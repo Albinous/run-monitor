@@ -4,7 +4,7 @@ A training-run monitor for machine-learning experiments. It shows the run list a
 
 Made for the Soup internship take-home task (Frontend Engineer). The main idea: a chart that **looks** right and a chart that **is** truthful are not the same thing. The app never hides a spike, never draws NaN as 0, never connects a line across missing data, and the tests prove it.
 
-- **Deploy:** `<paste the deployed link>`
+- **Deploy:** https://albinous.github.io/run-monitor/
 - **Write-up:** [NOTE.md](NOTE.md) — truthfulness, performance, silent failures, verdict
 - **Tests:** 46 tests, output in [test-output.txt](test-output.txt)
 
