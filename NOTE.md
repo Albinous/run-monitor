@@ -20,16 +20,14 @@ Sort by step → duplicate steps: _last write wins_ (resume from checkpoint) →
 
 ## 3. Performance (1M points)
 
-|                                                                   | Draw every point (`?render=naive`)   | M4 + block index + cursor overlay |
-| ----------------------------------------------------------------- | ------------------------------------ | --------------------------------- |
-| Frame compute, full view (Node, median / p90)                     | 25.7 / 39.8 ms                       | 1.7 / 4.6 ms                      |
-| Points sent to canvas, full view                                  | 1,000,000                            | 3,195                             |
-| Browser, compute + draw of 3 charts, first render (no throttling) | ≈ 72 + 55 ms                         | ≈ 14 + 5 ms                       |
-| Hover                                                             | redraw of all 1M points (one canvas) | overlay redraw only (≈ 2 ms)      |
-| JS heap at 1M points                                              | 77 MB                                | 48 MB                             |
-| **First render / zoom / hover, CPU ×4 (DevTools trace)**          | `<fill in>`                          | `<fill in>`                       |
+|                                               | Draw every point (`?render=naive`)                           | M4 + block index + cursor overlay                     |
+| --------------------------------------------- | ------------------------------------------------------------ | ----------------------------------------------------- |
+| Frame compute, full view (Node, median / p90) | 25.7 / 39.8 ms                                               | 1.7 / 4.6 ms                                          |
+| Points sent to canvas, full view              | 1,000,000                                                    | 3,195                                                 |
+| JS heap at 1M points                          | 77 MB                                                        | 48 MB                                                 |
+| **CPU ×4: long tasks on open / zoom / hover** | open 1.1 + 6.3 s · zoom 0.4–1.2 s · hover 0.7–0.9 s per move | open 1.4 + 3.7 s · zoom ≤ 0.1 s · hover: no long task |
 
-The browser rows come from an embedded Chromium without throttling and are indicative only. Still on the main thread: generating the 1M run (~190 ms) and cleaning + indexing (~55 + 3×30 ms) → one long task on first open. **Next: move cleaning and indexing into a Web Worker.**
+The ×4 row is headless Chrome driven over CDP (CPU throttling rate 4), long-task durations; M4 trace: [docs/traces/trace-m4-cpu4x.json.gz](docs/traces/trace-m4-cpu4x.json.gz) (loads in DevTools → Performance). A manual DevTools ×4 trace of M4 agreed in shape: open ≈ 0.7 + 1.8 s, INP 16 ms. **No naive trace file:** with tracing on, the naive tab stopped responding, so its numbers come from a `longtask` observer only. Opening is slow in _both_ modes because it is dominated by work M4 does not touch. Still on the main thread: generating the 1M run (~190 ms) and cleaning + indexing (~55 + 3×30 ms) → one long task on first open. **Next: move cleaning and indexing into a Web Worker.**
 
 ## 4. Silent failures — what I checked and how
 
@@ -42,12 +40,12 @@ The browser rows come from an embedded Chromium without throttling and are indic
 
 ## 5. Verdict: **DON'T SHIP** (yet) for a $500 stop/continue decision
 
-I trust the chart itself: the tests pin down the properties that matter. But (1) the data path is a mock, and a real JSON API has no agreed format for NaN/Inf, so NaN could silently arrive as `null` → 0; (2) opening a 1M run blocks the main thread; (3) there are no E2E or visual tests; the ×4 trace is `<recorded / not recorded>`. **First change:** define the wire format for non-finite values and test it end to end. Second: move cleaning to a Worker.
+I trust the chart itself: the tests pin down the properties that matter. But (1) the data path is a mock, and a real JSON API has no agreed format for NaN/Inf, so NaN could silently arrive as `null` → 0; (2) opening a 1M run blocks the main thread; (3) there are no E2E or visual tests; the ×4 trace is recorded for M4 only. **First change:** define the wire format for non-finite values and test it end to end. Second: move cleaning to a Worker.
 
 ## What surprised me / what still concerns me
 
-`<write in your own words>`
+How many ways a chart can look fine and still be wrong. The list showed the last _finite_ loss, so a diverged run looked healthy — nothing "broken", just a reasonable-looking default. And all 46 tests were green while the deployed site showed Russian dates inside an English UI (the locale came from my browser); I only saw it on the real site. Still concerns me: the data path is a mock, there are no E2E tests, and I could not have written the canvas renderer alone — I can explain it, but my confidence comes from the tests and from checking by hand, not from having built it line by line.
 
 ## AI tools
 
-`<fill in honestly: what was generated by an AI assistant, which suggestions you accepted, what you checked, changed or redid yourself>`
+Honest split: the code, the tests and the first draft of this note were generated by an AI assistant (Claude Code) from my prompts; I know TypeScript and was new to React. **My part:** reading the task and steering the work; asking for and reviewing refactors (short names like `lo`/`hi` → readable names, magic numbers → named constants, ESLint + unicorn, Prettier, Husky); all git work by hand — 16 PRs through `develop`, the deploy; checking the live site, where I found the Russian-dates bug and recorded a DevTools trace; a file-by-file walkthrough of the run page until I could explain it. **Two AI tests were wrong at first** (a bad outlier threshold, `<` instead of `≤`) — the tests were fixed, not the code. The automated ×4 traces in section 3 were also recorded by the assistant.
